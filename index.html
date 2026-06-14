@@ -4,41 +4,117 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Colorado Hikes — 3D flythrough</title>
+<meta name="description" content="Interactive 3D flythroughs of Colorado hiking routes with satellite terrain, elevation, and trail markers."/>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 <style>
-  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:linear-gradient(180deg,#9cc0e2 0%,#bcd6ea 45%,#dde9f3 70%,#eef4f9 100%)}
-  #map{position:absolute;inset:0;background:transparent}
-  .maplibregl-canvas{background:transparent}
-  .panel{position:absolute;z-index:5;color:#fff}
-  #top{top:12px;left:12px;max-width:min(92vw,420px)}
-  #top h1{margin:0 0 2px;font-size:17px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}
-  #top p{margin:0 0 8px;font-size:12px;opacity:.85;text-shadow:0 1px 4px rgba(0,0,0,.6)}
-  .tabs{display:flex;gap:6px;flex-wrap:wrap}
-  .tab{padding:6px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:rgba(18,22,28,.6);
-    backdrop-filter:blur(6px);color:#fff;font-size:13px;cursor:pointer}
-  .tab.on{background:#ff5a2b;border-color:#ff5a2b}
-  #ctl{bottom:14px;left:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-  .btn{padding:8px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:rgba(18,22,28,.62);
-    backdrop-filter:blur(6px);color:#fff;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
-  .btn:hover{background:rgba(40,46,54,.8)}
-  .btn.on{background:#1d6fb8;border-color:#1d6fb8}
-  .exa{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.28);
-    background:rgba(18,22,28,.62);backdrop-filter:blur(6px);font-size:12px}
-  .exa input{width:90px}
-  #stats{top:12px;right:12px;text-align:right;font-size:12px;text-shadow:0 1px 4px rgba(0,0,0,.7);min-width:120px}
-  #stats b{font-size:20px;font-weight:600}
-  #bar{position:absolute;left:0;bottom:0;height:3px;background:#ff5a2b;width:0;z-index:6;transition:width .05s linear}
-  .mk{display:flex;flex-direction:column;align-items:center;pointer-events:none;transform:translateY(-50%)}
-  .mk .dot{width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
-  .mk .lab{margin-top:3px;font-size:11px;color:#fff;background:rgba(12,16,20,.72);padding:2px 6px;border-radius:6px;
-    white-space:nowrap;text-shadow:none}
-  #hint{bottom:14px;right:12px;font-size:11px;opacity:.8;text-shadow:0 1px 4px rgba(0,0,0,.7)}
-</style>
+	  *{box-sizing:border-box}
+	  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+	    background:linear-gradient(180deg,#9cc0e2 0%,#bcd6ea 45%,#dde9f3 70%,#eef4f9 100%)}
+	  #map{position:absolute;inset:0;background:transparent}
+	  #gameWorld{position:absolute;inset:0;z-index:4;display:none;background:#9fb8cd}
+	  body.game #gameWorld{display:block}
+	  body.game::after{content:"";position:absolute;inset:0;z-index:4;pointer-events:none;background:
+	    radial-gradient(ellipse at center,rgba(255,255,255,0) 45%,rgba(5,9,10,.36) 100%),
+	    linear-gradient(180deg,rgba(255,244,218,.08),rgba(18,24,18,.18));mix-blend-mode:multiply}
+	  body.game #map,body.game .maplibregl-control-container,body.game #worldShade,body.game .mk{display:none}
+	  body.game #top,body.game #stats,body.game #hint{opacity:0;pointer-events:none}
+	  .maplibregl-canvas{background:transparent}
+	  #worldShade{position:absolute;inset:0;z-index:3;pointer-events:none;background:
+	    radial-gradient(ellipse at center,rgba(0,0,0,0) 38%,rgba(0,0,0,.36) 100%),
+	    linear-gradient(180deg,rgba(2,8,15,.34) 0%,rgba(2,8,15,0) 32%,rgba(2,8,15,.18) 100%);
+	    opacity:.52;transition:opacity .5s ease}
+	  #hero{position:absolute;z-index:8;inset:0;display:grid;place-items:center;padding:28px;color:#fff;text-align:center;pointer-events:none;
+	    background:linear-gradient(180deg,rgba(3,8,13,.55),rgba(3,8,13,.08) 48%,rgba(3,8,13,.48));transition:opacity .45s ease,visibility .45s ease}
+	  #hero .inner{max-width:min(760px,92vw);transform:translateY(-3vh);text-shadow:0 2px 18px rgba(0,0,0,.78)}
+	  #hero .kicker{margin:0 0 12px;font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;opacity:.86}
+	  #hero h2{margin:0;font-size:clamp(38px,8vw,86px);line-height:.94;font-weight:750;letter-spacing:0}
+	  #hero p{margin:16px auto 0;max-width:620px;font-size:clamp(15px,2.1vw,19px);line-height:1.45;color:rgba(255,255,255,.9)}
+	  #heroStats{margin-top:16px;font-size:13px;color:rgba(255,255,255,.82)}
+	  .hero-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:24px;pointer-events:auto}
+	  .hero-btn{min-height:42px;padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.34);background:rgba(12,18,24,.66);
+	    color:#fff;font-size:14px;font-weight:650;cursor:pointer;backdrop-filter:blur(8px)}
+	  .hero-btn.primary{background:#ff5a2b;border-color:#ff7d55}
+	  body:not(.exploring):not(.cinematic) #top,
+	  body:not(.exploring):not(.cinematic) #ctl,
+	  body:not(.exploring):not(.cinematic) #stats,
+	  body:not(.exploring):not(.cinematic) #profile,
+	  body:not(.exploring):not(.cinematic) #hint,
+	  body:not(.exploring):not(.cinematic) .maplibregl-control-container{opacity:0;pointer-events:none}
+	  body:not(.exploring):not(.cinematic) .mk .lab{display:none}
+	  body.exploring #hero,body.cinematic #hero,body.game #hero{opacity:0;visibility:hidden}
+	  body.cinematic #worldShade{opacity:.78}
+	  body.cinematic #top,body.cinematic #stats,body.cinematic #hint{opacity:0;pointer-events:none}
+	  .panel{position:absolute;z-index:5;color:#fff}
+	  #top{top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));max-width:min(92vw,440px)}
+	  #top h1{margin:0 0 2px;font-size:17px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+	  #top p{margin:0 0 8px;font-size:12px;opacity:.85;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+	  .tabs{display:flex;gap:6px;flex-wrap:wrap}
+	  .tab{padding:6px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:rgba(18,22,28,.6);
+	    backdrop-filter:blur(6px);color:#fff;font-size:13px;line-height:1.2;cursor:pointer}
+	  .tab.on{background:#ff5a2b;border-color:#ff5a2b}
+	  #ctl{bottom:max(14px,env(safe-area-inset-bottom));left:max(12px,env(safe-area-inset-left));display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:min(760px,calc(100vw - 24px))}
+	  .btn{padding:8px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:rgba(18,22,28,.62);
+	    backdrop-filter:blur(6px);color:#fff;font-size:13px;line-height:1.2;cursor:pointer;display:inline-flex;gap:6px;align-items:center;min-height:34px}
+	  .btn:hover{background:rgba(40,46,54,.8)}
+	  .btn.on{background:#1d6fb8;border-color:#1d6fb8}
+	  .tab:focus-visible,.btn:focus-visible,.hero-btn:focus-visible,.exa input:focus-visible{outline:2px solid #fff;outline-offset:2px}
+	  .exa{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.28);
+	    background:rgba(18,22,28,.62);backdrop-filter:blur(6px);font-size:12px}
+	  .exa input{width:90px}
+	  #stats{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));text-align:right;font-size:12px;text-shadow:0 1px 4px rgba(0,0,0,.7);min-width:120px}
+	  #stats b{font-size:20px;font-weight:600}
+	  .stats-meta{opacity:.85}
+	  #profile{right:max(12px,env(safe-area-inset-right));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 44px);
+	    width:min(360px,calc(100vw - 24px));padding:9px 10px 8px;border:1px solid rgba(255,255,255,.24);
+	    border-radius:8px;background:rgba(12,17,22,.64);backdrop-filter:blur(8px);box-shadow:0 8px 28px rgba(0,0,0,.22)}
+	  #profile canvas{display:block;width:100%;height:104px}
+	  #profileMeta{display:flex;justify-content:space-between;gap:10px;margin-top:5px;font-size:11px;color:rgba(255,255,255,.82);white-space:nowrap}
+	  #profileMeta b{color:#fff;font-weight:650}
+	  #bar{position:absolute;left:0;bottom:0;height:3px;background:#ff5a2b;width:0;z-index:7;transition:width .05s linear}
+	  .mk{display:flex;flex-direction:column;align-items:center;pointer-events:none;transform:translateY(-50%)}
+	  .mk .dot{width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+	  .mk .lab{margin-top:3px;font-size:11px;color:#fff;background:rgba(12,16,20,.72);padding:2px 6px;border-radius:6px;
+	    white-space:nowrap;text-shadow:none}
+	  body.cinematic .mk .lab{opacity:.75}
+	  #hint{bottom:max(14px,env(safe-area-inset-bottom));right:max(12px,env(safe-area-inset-right));font-size:11px;opacity:.8;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+	  @media (max-width:720px){
+	    #hero{place-items:start center;padding:72px 18px 18px}
+	    #hero .inner{transform:none}
+	    #hero h2{font-size:42px}
+	    #top{max-width:calc(100vw - 24px)}
+	    #stats{top:auto;bottom:calc(max(14px,env(safe-area-inset-bottom)) + 104px);right:max(12px,env(safe-area-inset-right));background:rgba(18,22,28,.58);border-radius:8px;padding:6px 9px;backdrop-filter:blur(6px)}
+	    #profile{left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 116px);width:auto;padding:8px}
+	    #profile canvas{height:82px}
+	    #ctl{right:max(12px,env(safe-area-inset-right))}
+	    .btn,.tab{min-height:38px}
+	    .exa{flex:1 1 210px;min-height:38px}
+	    .exa input{flex:1;min-width:110px}
+	    #hint{display:none}
+	  }
+	  @media (prefers-reduced-motion:reduce){
+	    #bar{transition:none}
+	  }
+	</style>
 </head>
 <body>
 <div id="map"></div>
+<div id="gameWorld" aria-label="Procedural 3D trail world"></div>
+<div id="worldShade" aria-hidden="true"></div>
+<section id="hero" aria-labelledby="heroTitle">
+  <div class="inner">
+    <p class="kicker">real terrain · procedural detail · guided flight</p>
+    <h2 id="heroTitle">Colorado Hikes 3D</h2>
+    <p id="heroCopy">Satellite terrain, elevation-driven snowfields, alpine water, and generated forest texture around each route.</p>
+    <div id="heroStats"></div>
+    <div class="hero-actions">
+      <button class="hero-btn primary" id="heroCine" type="button">Start cinematic tour</button>
+      <button class="hero-btn" id="heroGame" type="button">3D game walk</button>
+      <button class="hero-btn" id="heroExplore" type="button">Explore manually</button>
+    </div>
+  </div>
+</section>
 <div id="bar"></div>
 <div class="panel" id="top">
   <h1 id="title">Colorado hikes — 3D</h1>
@@ -46,16 +122,23 @@
   <div class="tabs" id="tabs"></div>
 </div>
 <div class="panel" id="stats"></div>
+<div class="panel" id="profile" aria-label="Distance and elevation profile">
+  <canvas id="profileCanvas" width="680" height="208"></canvas>
+  <div id="profileMeta"></div>
+</div>
 <div class="panel" id="ctl">
-  <button class="btn" id="play">▶ Fly the trail</button>
-  <button class="btn" id="walk">Walk the trail</button>
-  <button class="btn" id="reset">Reset view</button>
-  <div class="exa">relief ×<span id="exav">1.4</span><input type="range" id="exa" min="1" max="3" step="0.1" value="1.4"/></div>
+	  <button class="btn" id="play" type="button" aria-pressed="false">▶ Fly the trail</button>
+	  <button class="btn" id="walk" type="button" aria-pressed="false">Map walk</button>
+	  <button class="btn" id="game" type="button" aria-pressed="false">3D game walk</button>
+	  <button class="btn" id="cine" type="button" aria-pressed="false">Cinematic tour</button>
+	  <button class="btn" id="reset" type="button">Reset view</button>
+	  <label class="exa" for="exa">relief ×<span id="exav">1.4</span><input type="range" id="exa" min="1" max="3" step="0.1" value="1.4" aria-label="Terrain relief exaggeration"/></label>
 </div>
 <div class="panel" id="hint">drag = rotate · right-drag/ctrl-drag = tilt · scroll = zoom</div>
 <script>
 const HIKES={"seg7":{"title":"Colorado Trail - Segment 7","sub":"Gold Hill Trailhead -> Copper Mountain","coords":[[-106.05575,39.54181],[-106.05701,39.54206],[-106.05815,39.5425],[-106.0588,39.54161],[-106.05891,39.54058],[-106.05926,39.53954],[-106.05973,39.53855],[-106.06011,39.53753],[-106.06037,39.53653],[-106.0609,39.53557],[-106.06147,39.53462],[-106.06255,39.53471],[-106.06334,39.53387],[-106.06452,39.53366],[-106.06514,39.53395],[-106.06544,39.53499],[-106.06571,39.53604],[-106.066,39.53708],[-106.06684,39.53775],[-106.06812,39.53807],[-106.06945,39.538],[-106.07084,39.53795],[-106.07224,39.53789],[-106.07364,39.53783],[-106.07504,39.53778],[-106.07643,39.53772],[-106.07783,39.53767],[-106.07923,39.53761],[-106.08063,39.53755],[-106.08151,39.53725],[-106.08078,39.53634],[-106.08027,39.53533],[-106.08001,39.53428],[-106.08093,39.53363],[-106.08209,39.53369],[-106.08327,39.53347],[-106.08453,39.53303],[-106.08553,39.53229],[-106.08673,39.53176],[-106.08791,39.5312],[-106.08886,39.53042],[-106.08989,39.53007],[-106.08912,39.53092],[-106.08936,39.53197],[-106.09011,39.53203],[-106.09132,39.53179],[-106.09271,39.53183],[-106.0941,39.53195],[-106.09546,39.53218],[-106.09665,39.5327],[-106.09785,39.53304],[-106.09884,39.53331],[-106.09814,39.53404],[-106.09854,39.53429],[-106.098,39.53518],[-106.09876,39.53515],[-106.09978,39.53516],[-106.10094,39.53472],[-106.10222,39.53487],[-106.10341,39.53486],[-106.10474,39.53471],[-106.10605,39.53438],[-106.10655,39.53454],[-106.10772,39.53415],[-106.1087,39.53347],[-106.10823,39.53249],[-106.10764,39.53152],[-106.10731,39.53051],[-106.10747,39.52945],[-106.10811,39.52851],[-106.10886,39.52765],[-106.10972,39.52682],[-106.1101,39.52581],[-106.11057,39.52483],[-106.1115,39.52404],[-106.11177,39.52301],[-106.11134,39.52203],[-106.11085,39.52171],[-106.11056,39.52154],[-106.1101,39.52079],[-106.11008,39.51971],[-106.1097,39.51869],[-106.10931,39.51766],[-106.10931,39.51659],[-106.1096,39.51555],[-106.10945,39.51448],[-106.1098,39.5135],[-106.11035,39.51252],[-106.11075,39.51149],[-106.11127,39.5105],[-106.11173,39.50952],[-106.11178,39.50845],[-106.11207,39.5074],[-106.11225,39.50651],[-106.11266,39.50602],[-106.11284,39.50541],[-106.11319,39.50504],[-106.11427,39.5044],[-106.11478,39.50343],[-106.11454,39.50237],[-106.11437,39.5013],[-106.11418,39.50023],[-106.11419,39.49917],[-106.11402,39.49812],[-106.11405,39.4971],[-106.11481,39.49621],[-106.11503,39.49515],[-106.11469,39.49414],[-106.11423,39.49312],[-106.11387,39.49208],[-106.11378,39.49102],[-106.11334,39.49001],[-106.11275,39.48904],[-106.11292,39.48798],[-106.11356,39.48705],[-106.11348,39.48601],[-106.11286,39.48506],[-106.11231,39.48413],[-106.11204,39.48311],[-106.11272,39.48245],[-106.11407,39.48224],[-106.11541,39.48221],[-106.11605,39.48142],[-106.11615,39.4804],[-106.11556,39.47946],[-106.11533,39.47844],[-106.11513,39.47759],[-106.11512,39.4767],[-106.1155,39.47616],[-106.11578,39.47598],[-106.11681,39.47669],[-106.11729,39.47765],[-106.11854,39.47759],[-106.11988,39.47787],[-106.1211,39.47837],[-106.12182,39.47928],[-106.12231,39.48029],[-106.12303,39.48117],[-106.12404,39.48183],[-106.12489,39.48267],[-106.12563,39.48355],[-106.1265,39.48438],[-106.12707,39.48535],[-106.12767,39.48632],[-106.12797,39.48737],[-106.12842,39.48838],[-106.12899,39.48935],[-106.12936,39.49037],[-106.12963,39.49134],[-106.13033,39.49225],[-106.13084,39.49324],[-106.13156,39.4941],[-106.13274,39.49465],[-106.13347,39.49553],[-106.13409,39.49646],[-106.13482,39.49737],[-106.13619,39.49751],[-106.13758,39.49765],[-106.13896,39.49779],[-106.14035,39.49794],[-106.14174,39.49808],[-106.14312,39.49822],[-106.14451,39.49837],[-106.14589,39.49851],[-106.14728,39.49865],[-106.14867,39.4988],[-106.15005,39.49894],[-106.15144,39.49908],[-106.15283,39.49923],[-106.15421,39.49937],[-106.15544,39.49901]],"ele":[2933,2943,2959,2984,2991,3004,3011,3022,3026,3037,3038,3053,3066,3068,3083,3095,3103,3108,3128,3132,3148,3143,3138,3125,3106,3103,3091,3081,3073,3060,3063,3063,3063,3062,3069,3087,3088,3102,3105,3139,3136,3153,3142,3150,3162,3180,3186,3209,3213,3234,3237,3252,3238,3248,3242,3260,3289,3291,3307,3311,3338,3341,3356,3398,3416,3408,3392,3395,3403,3441,3449,3464,3466,3487,3523,3539,3572,3572,3583,3620,3623,3600,3632,3635,3639,3637,3651,3677,3703,3702,3688,3692,3703,3731,3771,3783,3807,3807,3776,3773,3778,3780,3782,3782,3771,3753,3764,3770,3758,3758,3727,3716,3714,3702,3692,3681,3661,3676,3668,3629,3614,3586,3547,3528,3506,3492,3504,3488,3447,3431,3391,3406,3383,3361,3322,3305,3316,3310,3257,3199,3201,3188,3155,3144,3147,3156,3133,3111,3093,3076,3076,3060,3012,2990,2997,2999,2981,2978,2974,2969,2967,2966,2962,2965,2968,2973,2983,2985,3002,3001,2999],"markers":[{"n":"Gold Hill Trailhead","lat":39.5418,"lon":-106.0557,"i":"flag"},{"n":"Peaks Trail jct","lat":39.5376,"lon":-106.0817,"i":"dot"},{"n":"Tenmile crest (high point)","lat":39.5,"lon":-106.11,"i":"peak"},{"n":"Miners / Wheeler jct","lat":39.4756,"lon":-106.1154,"i":"droplet"},{"n":"Copper Mountain","lat":39.499,"lon":-106.1546,"i":"flag-finish"}],"stats":{"dist":"13.7","gain":"3,687","hi":"12,500"}},"mohawk":{"title":"Mohawk Lakes","sub":"Spruce Creek Trailhead -> Upper Mohawk Lake","coords":[[-106.06955,39.42868],[-106.07015,39.42839],[-106.07068,39.42804],[-106.07117,39.42766],[-106.07162,39.42724],[-106.07203,39.42681],[-106.07245,39.42638],[-106.07286,39.42594],[-106.0727,39.42542],[-106.07292,39.42492],[-106.07266,39.42443],[-106.0723,39.42396],[-106.07235,39.42346],[-106.07267,39.42298],[-106.07299,39.4225],[-106.07339,39.42206],[-106.07402,39.42186],[-106.07454,39.42157],[-106.07522,39.42155],[-106.07584,39.42168],[-106.0764,39.42136],[-106.07708,39.42127],[-106.07776,39.42118],[-106.07845,39.42116],[-106.07914,39.42109],[-106.07976,39.42086],[-106.08033,39.42062],[-106.08101,39.42073],[-106.08113,39.4203],[-106.08171,39.4203],[-106.08217,39.4207],[-106.08217,39.42016],[-106.08262,39.42027],[-106.08307,39.42017],[-106.08357,39.42041],[-106.08411,39.42067],[-106.08475,39.42076],[-106.08532,39.42107],[-106.08598,39.42121],[-106.08667,39.42128],[-106.08732,39.42119],[-106.08751,39.4207],[-106.08732,39.42022],[-106.08709,39.41973],[-106.08723,39.41921],[-106.08784,39.41911],[-106.08852,39.41909],[-106.08921,39.41912],[-106.08979,39.41923],[-106.09002,39.41952]],"ele":[3337,3337,3370,3388,3374,3345,3345,3348,3345,3349,3346,3346,3346,3364,3376,3384,3385,3385,3401,3406,3406,3437,3450,3449,3458,3461,3462,3462,3466,3523,3525,3525,3525,3533,3591,3599,3599,3607,3612,3609,3613,3634,3633,3633,3633,3641,3646,3646,3681,3698],"markers":[{"n":"Spruce Creek Trailhead","lat":39.4287,"lon":-106.0696,"i":"flag"},{"n":"Continental Falls","lat":39.4205,"lon":-106.08,"i":"droplet"},{"n":"Lower Mohawk Lake","lat":39.4205,"lon":-106.082,"i":"lake"},{"n":"Upper Mohawk Lake","lat":39.4215,"lon":-106.085,"i":"flag-finish"}],"stats":{"dist":"3.35","gain":"1,420","hi":"12,110"}},"mccullough":{"title":"McCullough Gulch","sub":"McCullough Gulch Trailhead -> Upper lake (below Quandary)","coords":[[-106.07926,39.40107],[-106.07962,39.40065],[-106.08024,39.40052],[-106.08085,39.40076],[-106.08121,39.40117],[-106.0817,39.40082],[-106.08171,39.40126],[-106.08201,39.4017],[-106.08253,39.40199],[-106.08304,39.40232],[-106.08373,39.40231],[-106.08436,39.40253],[-106.08481,39.40293],[-106.08524,39.40332],[-106.08565,39.40372],[-106.0861,39.40406],[-106.08652,39.40445],[-106.08695,39.40487],[-106.08752,39.40513],[-106.08811,39.40537],[-106.08877,39.40554],[-106.08939,39.40573],[-106.0899,39.40608],[-106.09038,39.40647],[-106.091,39.40666],[-106.09166,39.40667],[-106.09227,39.40665],[-106.09265,39.40624],[-106.09305,39.40657],[-106.09349,39.40676],[-106.09419,39.40676],[-106.09489,39.40677],[-106.09559,39.40677],[-106.09629,39.40678],[-106.09699,39.40678],[-106.09768,39.40679],[-106.09838,39.40679],[-106.09908,39.40678],[-106.09975,39.40665],[-106.10043,39.40651],[-106.10111,39.40638],[-106.10178,39.40624],[-106.10246,39.40611],[-106.10314,39.40597],[-106.10381,39.40584],[-106.10447,39.40566],[-106.10513,39.40547],[-106.10578,39.40529],[-106.10643,39.4051],[-106.10709,39.40491],[-106.10774,39.40472],[-106.1084,39.40453]],"ele":[3402,3402,3402,3403,3414,3425,3425,3425,3443,3462,3474,3480,3480,3476,3473,3473,3516,3553,3545,3532,3532,3525,3531,3555,3560,3556,3553,3544,3553,3553,3581,3591,3618,3647,3647,3646,3641,3641,3643,3646,3653,3672,3719,3730,3732,3759,3778,3780,3787,3787,3788,3818],"markers":[{"n":"McCullough Gulch Trailhead","lat":39.4011,"lon":-106.0793,"i":"flag"},{"n":"White Falls","lat":39.4045,"lon":-106.0905,"i":"droplet"},{"n":"Upper McCullough Lake","lat":39.4045,"lon":-106.1085,"i":"flag-finish"}],"stats":{"dist":"4.0","gain":"1,250","hi":"12,500"}},"bluelakes":{"title":"Blue Lakes","sub":"Monte Cristo Gulch -> Upper basin (Quandary / Fletcher)","coords":[[-106.08913,39.38834],[-106.08982,39.38839],[-106.09049,39.38854],[-106.09119,39.3886],[-106.09187,39.3887],[-106.09253,39.38887],[-106.09323,39.38885],[-106.0939,39.38894],[-106.09458,39.38895],[-106.09527,39.38885],[-106.09595,39.38874],[-106.09665,39.3887],[-106.09729,39.38852],[-106.09765,39.38807],[-106.09817,39.38771],[-106.09874,39.3874],[-106.09933,39.38711],[-106.09993,39.38684],[-106.10057,39.38683],[-106.10115,39.38708],[-106.10179,39.38689],[-106.10219,39.38725],[-106.10277,39.38715],[-106.10346,39.38716],[-106.10406,39.3874],[-106.10468,39.38735],[-106.10526,39.38765],[-106.10593,39.38765],[-106.10662,39.38773],[-106.10726,39.38793],[-106.10789,39.38814],[-106.10831,39.38845],[-106.10893,39.38851],[-106.10953,39.38874],[-106.11005,39.38908],[-106.11049,39.3895],[-106.11107,39.38979],[-106.11169,39.39003],[-106.11222,39.39037],[-106.11266,39.3907],[-106.11321,39.39102],[-106.11352,39.39149],[-106.11404,39.39184],[-106.11448,39.39225],[-106.11495,39.39262],[-106.11533,39.39301],[-106.11588,39.39328],[-106.1164,39.39357],[-106.11698,39.39384],[-106.11761,39.394],[-106.11824,39.39419],[-106.11889,39.39439],[-106.11934,39.39452]],"ele":[3497,3500,3501,3501,3503,3507,3507,3512,3513,3513,3529,3549,3558,3595,3592,3551,3542,3555,3574,3574,3574,3575,3580,3580,3592,3584,3639,3639,3664,3700,3712,3712,3712,3712,3714,3740,3759,3767,3767,3769,3772,3774,3780,3789,3793,3793,3793,3817,3837,3842,3860,3901,3901],"markers":[{"n":"Lower Blue Lake","lat":39.3872,"lon":-106.0945,"i":"lake"},{"n":"Blue Lakes Trail","lat":39.3905,"lon":-106.108,"i":"dot"},{"n":"Upper basin","lat":39.3945,"lon":-106.1193,"i":"flag-finish"}],"stats":{"dist":"3.0","gain":"1,300","hi":"12,750"}}};
-let key='seg7', flying=false, mode='fly', raf=null, t0=0, dur=50000, markers=[];
+		let key='seg7', flying=false, mode='fly', raf=null, t0=0, dur=50000, markers=[];
+	const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
 
 function hav(a,b){const R=6371000,r=Math.PI/180;
   const dla=(b[1]-a[1])*r,dlo=(b[0]-a[0])*r,la1=a[1]*r,la2=b[1]*r;
@@ -84,103 +167,465 @@ const map=new maplibregl.Map({
         tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         attribution:'Elevation: Tilezen / AWS Terrain Tiles'}
     },
-    layers:[{id:'sat',type:'raster',source:'sat'}]
+	    layers:[{id:'sat',type:'raster',source:'sat',
+	      paint:{'raster-saturation':-.08,'raster-contrast':.1,'raster-brightness-min':.03,'raster-brightness-max':.92}}]
   },
-  center:HIKES[key].coords[0], zoom:13, pitch:68, bearing:0
-});
+	  center:HIKES[key].coords[0], zoom:13, pitch:68, bearing:0
+	});
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
 
 map.on('load',()=>{
   map.setTerrain({source:'dem',exaggeration:1.4});
-  map.setSky({'sky-color':'#9fc0e0','sky-horizon-blend':0.5,'horizon-color':'#dfeaf3',
-    'horizon-fog-blend':0.6,'fog-color':'#eef3f8','fog-ground-blend':0.5});
-  map.addSource('route',{type:'geojson',data:fc(key)});
-  map.addLayer({id:'route-cap',type:'line',source:'route',
-    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#10151b','line-width':8,'line-opacity':.4}});
-  map.addLayer({id:'route',type:'line',source:'route',
-    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#ff5a2b','line-width':4.5}});
-  buildTabs(); loadHike(key,false);
-});
-
-function fc(k){return {type:'Feature',geometry:{type:'LineString',coordinates:HIKES[k].coords}};}
-function clearMarkers(){markers.forEach(m=>m.remove());markers=[];}
+	  map.setSky({'sky-color':'#9fc0e0','sky-horizon-blend':0.5,'horizon-color':'#dfeaf3',
+	    'horizon-fog-blend':0.6,'fog-color':'#eef3f8','fog-ground-blend':0.5});
+	  map.addSource('route',{type:'geojson',data:fc(key)});
+	  map.addSource('forest',{type:'geojson',data:emptyFc()});
+	  map.addSource('snow',{type:'geojson',data:emptyFc()});
+	  map.addSource('water',{type:'geojson',data:emptyFc()});
+	  map.addLayer({id:'forest-canopy',type:'circle',source:'forest',
+	    paint:{'circle-radius':['interpolate',['linear'],['zoom'],10,1.8,13,5.5,16,13],
+	      'circle-color':['interpolate',['linear'],['get','shade'],0,'#142819',1,'#315b2e'],
+	      'circle-opacity':['interpolate',['linear'],['zoom'],10,.08,13,.22,16,.34],
+	      'circle-blur':.72}});
+	  map.addLayer({id:'snowfields',type:'circle',source:'snow',
+	    paint:{'circle-radius':['interpolate',['linear'],['zoom'],10,4,14,18,16,38],
+	      'circle-color':'#eef3ec','circle-opacity':['interpolate',['linear'],['zoom'],10,.08,14,.22,16,.34],
+	      'circle-blur':.88}});
+	  map.addLayer({id:'alpine-water',type:'circle',source:'water',
+	    paint:{'circle-radius':['interpolate',['linear'],['zoom'],10,4,14,13,16,26],
+	      'circle-color':'#5bb7c8','circle-opacity':['interpolate',['linear'],['zoom'],10,.1,14,.32,16,.46],
+	      'circle-blur':.68}});
+	  map.addLayer({id:'route-cap',type:'line',source:'route',
+	    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#10151b','line-width':8,'line-opacity':.4}});
+	  map.addLayer({id:'route-glow',type:'line',source:'route',
+	    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#ffb45f','line-width':12,'line-opacity':.22,'line-blur':8}});
+	  map.addLayer({id:'route',type:'line',source:'route',
+	    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#ff5a2b','line-width':4.5}});
+	  buildTabs(); loadHike(key,false);
+	});
+	
+	function fc(k){return {type:'Feature',geometry:{type:'LineString',coordinates:HIKES[k].coords}};}
+	function emptyFc(){return {type:'FeatureCollection',features:[]};}
+	function hashRand(seed){let x=Math.sin(seed*999.137)*43758.5453;return x-Math.floor(x);}
+	function pointFeature(coord,props){return {type:'Feature',geometry:{type:'Point',coordinates:coord},properties:props};}
+	function sceneryFor(k){
+	  const h=HIKES[k], co=h.coords, ele=h.ele||[], forest=[], snow=[], water=[];
+	  const cd=cum(co);
+		  const total=Math.min(900,Math.max(260,co.length*5));
+	  for(let i=0;i<total;i++){
+	    const p=(i+.5)/total, base=along(co,cd,p), e=gndFor(ele,p);
+	    const r1=hashRand(i+11), r2=hashRand(i+97), r3=hashRand(i+211);
+		    const side=r1>.5?1:-1, spread=.0018+r2*.008;
+		    const coord=[base[0]+side*spread*(.45+r3),base[1]+(r1-.5)*spread*.9];
+		    if(e<3620 || r3>.72)forest.push(pointFeature(coord,{shade:r2}));
+		    if(e>3625 && r2>.72)snow.push(pointFeature([coord[0]+(r1-.5)*.0026,coord[1]+(r3-.5)*.0022],{}));
+	  }
+	  h.markers.filter(m=>m.i==='lake'||m.i==='droplet').forEach((m,i)=>{
+		    for(let j=0;j<12;j++){
+	      const r1=hashRand(j+i*31), r2=hashRand(j+i*67);
+	      water.push(pointFeature([m.lon+(r1-.5)*.003,m.lat+(r2-.5)*.0022],{}));
+	    }
+	  });
+	  return {forest:{type:'FeatureCollection',features:forest},snow:{type:'FeatureCollection',features:snow},water:{type:'FeatureCollection',features:water}};
+	}
+	function gndFor(ele,p){var n=ele.length; if(!n)return 3300; if(n===1)return ele[0]; var f=p*(n-1),i=Math.min(Math.floor(f),n-2),t=f-i; return ele[i]+(ele[i+1]-ele[i])*t;}
+	function updateScenery(k){
+	  if(!map.getSource('forest'))return;
+	  const scenery=sceneryFor(k);
+	  map.getSource('forest').setData(scenery.forest);
+	  map.getSource('snow').setData(scenery.snow);
+	  map.getSource('water').setData(scenery.water);
+	}
+	function clearMarkers(){markers.forEach(m=>m.remove());markers=[];}
 function colorOf(t){return t==='flag'?'#37d67a':t==='flag-finish'?'#ffd23f':t==='peak'?'#ffffff':t==='lake'?'#2f9ee0':t==='droplet'?'#5bc0de':'#ff5a2b';}
-function addMarkers(k){clearMarkers();
-  HIKES[k].markers.forEach(m=>{
-    const el=document.createElement('div');el.className='mk';
-    el.innerHTML='<div class="dot" style="background:'+colorOf(m.i)+'"></div><div class="lab">'+m.n+'</div>';
-    markers.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([m.lon,m.lat]).addTo(map));
-  });
-}
+	function addMarkers(k){clearMarkers();
+	  HIKES[k].markers.forEach(m=>{
+	    const el=document.createElement('div');el.className='mk';
+	    const dot=document.createElement('div');
+	    dot.className='dot';
+	    dot.style.background=colorOf(m.i);
+	    const label=document.createElement('div');
+	    label.className='lab';
+	    label.textContent=m.n;
+	    el.append(dot,label);
+	    markers.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([m.lon,m.lat]).addTo(map));
+	  });
+	}
 function bounds(co){let b=new maplibregl.LngLatBounds(co[0],co[0]);co.forEach(c=>b.extend(c));return b;}
 
 function loadHike(k,fit){
-  key=k; stopFly();
-  document.getElementById('title').textContent=HIKES[k].title;
-  document.getElementById('sub').textContent=HIKES[k].sub;
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.k===k));
-  if(map.getSource('route'))map.getSource('route').setData(fc(k));
-  addMarkers(k);
-  renderStats(k);
+	  key=k; stopFly();
+	  document.getElementById('title').textContent=HIKES[k].title;
+	  document.getElementById('sub').textContent=HIKES[k].sub;
+	  updateHero(k);
+	  document.querySelectorAll('.tab').forEach(t=>{
+	    const selected=t.dataset.k===k;
+	    t.classList.toggle('on',selected);
+	    t.setAttribute('aria-pressed',String(selected));
+	  });
+	  if(map.getSource('route'))map.getSource('route').setData(fc(k));
+	  updateScenery(k);
+	  addMarkers(k);
+	  renderStats(k);
+	  drawProfile(k,0);
   resetView();
 }
 function resetView(){
-  stopFly();
-  const co=HIKES[key].coords;
-  map.fitBounds(bounds(co),{padding:70,duration:900,pitch:58,bearing:initBearing(co)});
-}
+	  stopFly();
+	  const co=HIKES[key].coords;
+	  map.fitBounds(bounds(co),{padding:70,duration:reduceMotion.matches?0:900,pitch:58,bearing:initBearing(co)});
+	}
 function initBearing(co){return bearing(co[0],co[Math.min(co.length-1,Math.floor(co.length*0.6))]);}
 
 function renderStats(k){
-  const h=HIKES[k];let s='';
-  if(h.stats){s='<div><b>'+h.stats.hi+'</b> ft high</div><div style="opacity:.85">'+h.stats.dist+' mi · '+h.stats.gain+' ft gain</div>';}
-  document.getElementById('stats').innerHTML=s;
-}
+	  const stats=document.getElementById('stats');
+	  stats.textContent='';
+	  const h=HIKES[k];
+	  if(!h.stats)return;
+	  const high=document.createElement('div');
+	  const highValue=document.createElement('b');
+	  highValue.textContent=h.stats.hi;
+	  high.append(highValue,' ft high');
+	  const meta=document.createElement('div');
+	  meta.className='stats-meta';
+	  meta.textContent=h.stats.dist+' mi · '+h.stats.gain+' ft gain';
+	  stats.append(high,meta);
+	}
+	function profileFor(k){
+	  const h=HIKES[k], co=h.coords, ele=h.ele||[], cd=cum(co), total=cd[cd.length-1]||1;
+	  return co.map((_,i)=>({mi:cd[i]/1609.344,ft:(ele[i]||ele[0]||0)*3.28084,p:cd[i]/total}));
+	}
+	function interpProfile(profile,p){
+	  if(!profile.length)return {mi:0,ft:0};
+	  let i=1;while(i<profile.length&&profile[i].p<p)i++;i=Math.min(i,profile.length-1);
+	  const a=profile[Math.max(0,i-1)], b=profile[i], span=(b.p-a.p)||1, t=(p-a.p)/span;
+	  return {mi:a.mi+(b.mi-a.mi)*t,ft:a.ft+(b.ft-a.ft)*t};
+	}
+	function drawProfile(k,p=0){
+	  const canvas=document.getElementById('profileCanvas'), meta=document.getElementById('profileMeta');
+	  const ctx=canvas.getContext('2d'), profile=profileFor(k);
+	  const w=canvas.width,h=canvas.height,pad={l:34,r:14,t:14,b:28};
+	  const minFt=Math.min(...profile.map(d=>d.ft)), maxFt=Math.max(...profile.map(d=>d.ft));
+	  const minY=Math.floor(minFt/250)*250, maxY=Math.ceil(maxFt/250)*250, range=Math.max(1,maxY-minY);
+	  const maxMi=profile[profile.length-1]?.mi||0, cur=interpProfile(profile,p);
+	  ctx.clearRect(0,0,w,h);
+	  ctx.fillStyle='rgba(255,255,255,.05)';ctx.fillRect(0,0,w,h);
+	  ctx.strokeStyle='rgba(255,255,255,.14)';ctx.lineWidth=1;
+	  ctx.fillStyle='rgba(255,255,255,.58)';ctx.font='20px system-ui,-apple-system,sans-serif';ctx.textAlign='right';
+	  for(let i=0;i<=3;i++){
+	    const y=pad.t+(h-pad.t-pad.b)*i/3, ft=maxY-range*i/3;
+	    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();
+	    ctx.fillText(Math.round(ft/100)*100,pad.l-8,y+6);
+	  }
+	  const xFor=mi=>pad.l+(w-pad.l-pad.r)*(mi/Math.max(maxMi,.01));
+	  const yFor=ft=>pad.t+(h-pad.t-pad.b)*(1-(ft-minY)/range);
+	  const grad=ctx.createLinearGradient(0,pad.t,0,h-pad.b);grad.addColorStop(0,'rgba(255,138,76,.38)');grad.addColorStop(1,'rgba(255,138,76,.03)');
+	  ctx.beginPath();profile.forEach((d,i)=>{const x=xFor(d.mi), y=yFor(d.ft);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+	  ctx.lineTo(xFor(maxMi),h-pad.b);ctx.lineTo(pad.l,h-pad.b);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+	  ctx.beginPath();profile.forEach((d,i)=>{const x=xFor(d.mi), y=yFor(d.ft);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+	  ctx.strokeStyle='#ff8a4c';ctx.lineWidth=4;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+	  ctx.beginPath();profile.forEach((d,i)=>{const x=xFor(d.mi), y=yFor(d.ft);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+	  ctx.strokeStyle='rgba(255,255,255,.82)';ctx.lineWidth=1.5;ctx.stroke();
+	  const cx=xFor(cur.mi), cy=yFor(cur.ft);
+	  ctx.strokeStyle='rgba(255,255,255,.72)';ctx.beginPath();ctx.moveTo(cx,pad.t);ctx.lineTo(cx,h-pad.b);ctx.stroke();
+	  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,6,0,Math.PI*2);ctx.fill();
+	  ctx.strokeStyle='rgba(0,0,0,.42)';ctx.lineWidth=2;ctx.stroke();
+	  ctx.fillStyle='rgba(255,255,255,.7)';ctx.textAlign='left';ctx.fillText('0 mi',pad.l,h-7);
+	  ctx.textAlign='right';ctx.fillText(maxMi.toFixed(maxMi>9?0:1)+' mi',w-pad.r,h-7);
+	  meta.innerHTML='<span><b>'+cur.mi.toFixed(cur.mi>9?1:2)+'</b> mi</span><span><b>'+Math.round(cur.ft).toLocaleString()+'</b> ft</span>';
+	}
+	function updateHero(k){
+	  const h=HIKES[k], s=h.stats||{};
+	  document.getElementById('heroTitle').textContent=h.title.replace(' - ',' ');
+	  document.getElementById('heroCopy').textContent='A terrain-scale flythrough from '+h.sub.toLowerCase()+', enriched with procedural forest, snow, and alpine-water detail.';
+	  document.getElementById('heroStats').textContent=[s.dist&&s.dist+' mi',s.gain&&s.gain+' ft gain',s.hi&&s.hi+' ft high'].filter(Boolean).join(' · ');
+	}
 
 // ---- flythrough ----
 let CO=[],CD=[],ELE=[];
+let gameRAF=null, gameWorld=null;
 function curExa(){return parseFloat(document.getElementById('exa').value);}
 function setRoute(thin){
-  if(!map.getLayer('route'))return;
-  map.setPaintProperty('route','line-width',thin?3:4.5);
-  map.setPaintProperty('route-cap','line-width',thin?5:8);
-}
+	  if(!map.getLayer('route'))return;
+	  const cinematic=mode==='cinema'&&flying;
+	  map.setPaintProperty('route','line-width',thin?3:(cinematic?5.5:4.5));
+	  map.setPaintProperty('route-cap','line-width',thin?5:(cinematic?10:8));
+	  if(map.getLayer('route-glow'))map.setPaintProperty('route-glow','line-opacity',cinematic ? .38 : .22);
+	}
 function setBtns(){
-  document.getElementById('play').innerHTML=(flying&&mode==='fly')?'⏸ Pause':'▶ Fly the trail';
-  document.getElementById('play').classList.toggle('on',flying&&mode==='fly');
-  document.getElementById('walk').innerHTML=(flying&&mode==='walk')?'⏸ Pause':'Walk the trail';
-  document.getElementById('walk').classList.toggle('on',flying&&mode==='walk');
-}
+	  const playActive=flying&&mode==='fly', walkActive=flying&&mode==='walk', gameActive=flying&&mode==='game', cineActive=flying&&mode==='cinema';
+	  const play=document.getElementById('play'), walk=document.getElementById('walk'), game=document.getElementById('game'), cine=document.getElementById('cine');
+	  play.textContent=playActive?'⏸ Pause':'▶ Fly the trail';
+	  play.classList.toggle('on',playActive);
+	  play.setAttribute('aria-pressed',String(playActive));
+	  walk.textContent=walkActive?'⏸ Pause':'Map walk';
+	  walk.classList.toggle('on',walkActive);
+	  walk.setAttribute('aria-pressed',String(walkActive));
+	  game.textContent=gameActive?'⏸ Pause':'3D game walk';
+	  game.classList.toggle('on',gameActive);
+	  game.setAttribute('aria-pressed',String(gameActive));
+	  cine.textContent=cineActive?'⏸ Pause':'Cinematic tour';
+	  cine.classList.toggle('on',cineActive);
+	  cine.setAttribute('aria-pressed',String(cineActive));
+	}
 function startFly(m){
-  mode=m; CO=HIKES[key].coords;CD=cum(CO);ELE=HIKES[key].ele||[];
-  const len=CD[CD.length-1];
-  dur=Math.max(24000,Math.min(m==='walk'?150000:80000,len/1609*(m==='walk'?9000:5200)));
-  map.setTerrain({source:'dem',exaggeration:Math.min(curExa(),1.0)}); // keep camera above the terrain while following
-  setRoute(m==='walk');
-  flying=true;t0=0;setBtns();
-  raf=requestAnimationFrame(step);
-}
+	  document.body.classList.add('exploring');
+	  document.body.classList.toggle('cinematic',m==='cinema');
+	  document.body.classList.toggle('game',m==='game');
+		  mode=m; CO=HIKES[key].coords;CD=cum(CO);ELE=HIKES[key].ele||[];
+	  const len=CD[CD.length-1];
+	  dur=Math.max(24000,Math.min(m==='walk'?150000:m==='game'?180000:m==='cinema'?105000:80000,len/1609*(m==='walk'?9000:m==='game'?10500:m==='cinema'?6800:5200)));
+	  map.setTerrain({source:'dem',exaggeration:Math.min(curExa(),1.0)}); // keep camera above the terrain while following
+	  setRoute(m==='walk');
+	  if(m==='game')buildGameWorld(key);
+	  flying=true;t0=0;setBtns();
+	  raf=requestAnimationFrame(step);
+	}
 function stopFly(){flying=false;if(raf)cancelAnimationFrame(raf);raf=null;
-  map.setTerrain({source:'dem',exaggeration:curExa()});
-  setRoute(false);setBtns();document.getElementById('bar').style.width='0';}
+	  if(gameRAF)cancelAnimationFrame(gameRAF);gameRAF=null;
+	  document.body.classList.remove('cinematic');
+	  document.body.classList.remove('game');
+	  map.setTerrain({source:'dem',exaggeration:curExa()});
+	  setRoute(false);setBtns();document.getElementById('bar').style.width='0';drawProfile(key,0);}
 // embedded ground elevation (m) interpolated along the route at progress p
-function gnd(p){var n=ELE.length; if(!n)return 3300; var f=p*(n-1),i=Math.min(Math.floor(f),n-2),t=f-i; return ELE[i]+(ELE[i+1]-ELE[i])*t;}
+	function gnd(p){var n=ELE.length; if(!n)return 3300; if(n===1)return ELE[0]; var f=p*(n-1),i=Math.min(Math.floor(f),n-2),t=f-i; return ELE[i]+(ELE[i+1]-ELE[i])*t;}
 // live rendered-terrain elevation; null until tiles load
-function liveG(ll){var e=map.queryTerrainElevation(new maplibregl.LngLat(ll[0],ll[1]),{exaggerated:true});return (e==null||isNaN(e))?null:e;}
-function frameAt(pe){
-  // real 3D camera behind+above the hiker, aimed at the trail just ahead — altitude from embedded DEM,
-  // clamped up to live terrain so the camera can never sink below the ground.
-  const walk=mode==='walk';
-  const behind=walk?0.0006:0.03, ahead=walk?0.012:0.05;
-  const cp=Math.max(0,pe-behind), tp=Math.min(1,pe+ahead);
-  const cLL=along(CO,CD,cp), tLL=along(CO,CD,tp);
-  let cg=gnd(cp), camAlt, tgtAlt;
-  if(walk){
-    const lc=liveG(cLL); if(lc!=null)cg=Math.max(cg,lc); // never sink below the rendered ground
-    camAlt=cg+7; tgtAlt=camAlt-3;       // eye height, look gently forward (steady regardless of grade)
-  }else{
-    camAlt=cg+205; tgtAlt=gnd(tp)+12;   // aerial chase looks down at the trail ahead
-  }
+	function liveG(ll){var e=map.queryTerrainElevation(new maplibregl.LngLat(ll[0],ll[1]),{exaggerated:false});return (e==null||isNaN(e))?null:e;}
+	function terrainAt(ll,p){
+	  const d=.00008, samples=[ll,[ll[0]+d,ll[1]],[ll[0]-d,ll[1]],[ll[0],ll[1]+d],[ll[0],ll[1]-d]];
+	  const live=Math.max(...samples.map(liveG).filter(e=>e!=null));
+	  const embedded=gnd(p);
+	  return Number.isFinite(live)?Math.max(embedded,live):embedded;
+	}
+	function gamePathFor(k){
+	  const h=HIKES[k], co=h.coords, ele=h.ele||[], lat0=co[0][1]*Math.PI/180, mLon=111320*Math.cos(lat0), mLat=110540;
+	  const minEle=Math.min(...ele), scale=.045, vScale=.065;
+	  const pts=co.map((c,i)=>new THREE.Vector3((c[0]-co[0][0])*mLon*scale,((ele[i]||minEle)-minEle)*vScale,(c[1]-co[0][1])*mLat*-scale));
+	  const d=[0];for(let i=1;i<pts.length;i++)d.push(d[i-1]+pts[i].distanceTo(pts[i-1]));
+	  const path={pts,d,total:d[d.length-1]||1,minEle,lon0:co[0][0],lat0:co[0][1],mLon,mLat,scale,vScale};
+	  path.samples=Array.from({length:420},(_,i)=>gameAlong(path,i/419));
+	  return path;
+	}
+	function gameAlong(path,p){
+	  const target=p*path.total;let i=1;while(i<path.d.length&&path.d[i]<target)i++;i=Math.min(i,path.pts.length-1);
+	  const seg=path.d[i]-path.d[i-1]||1,t=(target-path.d[i-1])/seg;
+	  return path.pts[i-1].clone().lerp(path.pts[i],t);
+	}
+	function nearPathHeight(path,x,z){
+	  let best=[1e9,1e9,1e9], heights=[0,0,0];
+	  for(const p of path.samples||path.pts){
+	    const dx=p.x-x,dz=p.z-z,ds=dx*dx+dz*dz;
+	    if(ds<best[0]){best=[ds,best[0],best[1]];heights=[p.y,heights[0],heights[1]];}
+	    else if(ds<best[1]){best=[best[0],ds,best[1]];heights=[heights[0],p.y,heights[1]];}
+	    else if(ds<best[2]){best[2]=ds;heights[2]=p.y;}
+	  }
+	  const weights=best.map(d=>1/(18+Math.sqrt(d))), wsum=weights[0]+weights[1]+weights[2];
+	  const h=(heights[0]*weights[0]+heights[1]*weights[1]+heights[2]*weights[2])/wsum;
+	  const dist=Math.sqrt(best[0]);
+	  return h-Math.min(8,dist*.018)+Math.sin(x*.025)*.7+Math.cos(z*.031)*.55+Math.sin((x+z)*.014)*.4;
+	}
+	function gameLngLat(path,x,z){return [path.lon0+x/(path.mLon*path.scale),path.lat0-z/(path.mLat*path.scale)];}
+	function gameHeight(path,x,z){return path.demHeight?path.demHeight(x,z):nearPathHeight(path,x,z);}
+	function tileXY(lon,lat,z){
+	  const n=2**z, r=lat*Math.PI/180;
+	  return {x:Math.floor((lon+180)/360*n),y:Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n)};
+	}
+	function loadImage(url){return new Promise((resolve,reject)=>{const img=new Image();img.crossOrigin='anonymous';img.onload=()=>resolve(img);img.onerror=reject;img.src=url;});}
+	async function applyTerrariumDEM(world,k,bounds){
+	  const z=12, co=HIKES[k].coords, lons=co.map(c=>c[0]), lats=co.map(c=>c[1]), pad=.012;
+	  const minLon=Math.min(...lons)-pad,maxLon=Math.max(...lons)+pad,minLat=Math.min(...lats)-pad,maxLat=Math.max(...lats)+pad;
+	  const a=tileXY(minLon,maxLat,z), b=tileXY(maxLon,minLat,z), tiles=new Map();
+	  const jobs=[];
+	  for(let x=a.x;x<=b.x;x++)for(let y=a.y;y<=b.y;y++)jobs.push(loadImage(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`).then(img=>{
+	    const c=document.createElement('canvas');c.width=c.height=256;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);
+	    tiles.set(x+','+y,ctx.getImageData(0,0,256,256).data);
+	  }).catch(()=>{}));
+	  await Promise.all(jobs);
+	  if(!tiles.size)return;
+	  world.path.demHeight=(x,zv)=>{
+	    const ll=gameLngLat(world.path,x,zv), t=tileXY(ll[0],ll[1],z), data=tiles.get(t.x+','+t.y);
+	    if(!data)return nearPathHeight(world.path,x,zv);
+	    const n=2**z, xf=(ll[0]+180)/360*n, latR=ll[1]*Math.PI/180, yf=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n;
+	    const px=Math.max(0,Math.min(255,Math.floor((xf-t.x)*256))), py=Math.max(0,Math.min(255,Math.floor((yf-t.y)*256)));
+	    const i=(py*256+px)*4, elev=data[i]*256+data[i+1]+data[i+2]/256-32768;
+	    return (elev-world.path.minEle)*world.path.vScale;
+	  };
+	  updateGameTerrain(world);
+	}
+	function updateGameTerrain(world){
+	  const pos=world.terrain.geometry.attributes.position;
+	  for(let i=0;i<pos.count;i++)pos.setY(i,gameHeight(world.path,pos.getX(i),pos.getZ(i)));
+	  pos.needsUpdate=true;world.terrain.geometry.computeVertexNormals();
+	  if(world.trailGroup)world.scene.remove(world.trailGroup);
+	  world.trailGroup=buildTrailGroup(world.path);world.scene.add(world.trailGroup);
+	  if(world.dressing){world.scene.remove(world.dressing);}
+	  world.dressing=buildDressing(world.path);world.scene.add(world.dressing);
+	}
+	function buildTrailGroup(path){
+	  const group=new THREE.Group(), trailPts=(path.samples||path.pts).map(p=>new THREE.Vector3(p.x,gameHeight(path,p.x,p.z)+.55,p.z));
+	  group.add(new THREE.Mesh(trailGeometry(trailPts,.95),new THREE.MeshStandardMaterial({color:0x8a6b50,roughness:1,metalness:0})));
+	  group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(trailPts.map(p=>p.clone().add(new THREE.Vector3(0,.35,0)))),new THREE.LineBasicMaterial({color:0xb98755,linewidth:2})));
+	  return group;
+	}
+	function spriteTexture(kind){
+	  const c=document.createElement('canvas'), s=128;c.width=c.height=s;const ctx=c.getContext('2d');ctx.clearRect(0,0,s,s);
+	  if(kind==='grass'){
+	    for(let i=0;i<44;i++){
+	      const x=12+hashRand(i+5)*104, h=28+hashRand(i+9)*72, hue=70+hashRand(i+13)*24;
+	      ctx.strokeStyle=`hsla(${hue},38%,${24+hashRand(i+17)*18}%,.78)`;ctx.lineWidth=1+hashRand(i+21)*2;
+	      ctx.beginPath();ctx.moveTo(x,118);ctx.quadraticCurveTo(x+(hashRand(i+25)-.5)*18,118-h*.55,x+(hashRand(i+29)-.5)*22,118-h);ctx.stroke();
+	    }
+	  }else if(kind==='tree'){
+	    const trunk=ctx.createLinearGradient(56,54,72,122);trunk.addColorStop(0,'rgba(79,58,38,.18)');trunk.addColorStop(1,'rgba(64,43,28,.72)');
+	    ctx.fillStyle=trunk;ctx.fillRect(58,58,12,64);
+	    for(let i=0;i<7;i++){
+	      const y=20+i*13,w=58-i*5, alpha=.82-i*.045;
+	      const g=ctx.createLinearGradient(64,y,64,y+46);
+	      g.addColorStop(0,`rgba(${38+i*5},${67+i*7},${42+i*3},${alpha})`);
+	      g.addColorStop(1,`rgba(${12+i*3},${28+i*4},${20+i*2},${Math.max(.18,alpha-.42)})`);
+	      ctx.fillStyle=g;
+	      ctx.beginPath();ctx.moveTo(64,y);ctx.bezierCurveTo(64-w*.28,y+16,64-w*.55,y+32,64-w*.42,y+44);
+	      ctx.lineTo(64+w*.42,y+44);ctx.bezierCurveTo(64+w*.55,y+32,64+w*.28,y+16,64,y);ctx.fill();
+	    }
+	    const haze=ctx.createRadialGradient(64,70,2,64,70,62);haze.addColorStop(0,'rgba(255,255,255,.09)');haze.addColorStop(1,'rgba(255,255,255,0)');
+	    ctx.fillStyle=haze;ctx.fillRect(0,0,s,s);
+	  }else{
+	    const g=ctx.createRadialGradient(64,78,8,64,78,56);g.addColorStop(0,'rgba(122,116,98,.92)');g.addColorStop(1,'rgba(54,51,44,.08)');
+	    ctx.fillStyle=g;ctx.beginPath();ctx.ellipse(64,78,46,26,-.12,0,Math.PI*2);ctx.fill();
+	  }
+	  const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;return tex;
+	}
+	function buildDressing(path){
+	  const group=new THREE.Group(), grassMat=new THREE.SpriteMaterial({map:spriteTexture('grass'),transparent:true,depthWrite:false,opacity:.54}), rockMat=new THREE.SpriteMaterial({map:spriteTexture('rock'),transparent:true,depthWrite:false,opacity:.58}), treeMat=new THREE.SpriteMaterial({map:spriteTexture('tree'),transparent:true,depthWrite:false,opacity:.46});
+	  for(let i=0;i<760;i++){
+	    const p=gameAlong(path,hashRand(i+401)), side=hashRand(i+409)>.5?1:-1, dist=3+hashRand(i+413)*46, alongJitter=(hashRand(i+417)-.5)*7;
+	    const ahead=gameAlong(path,Math.min(1,hashRand(i+401)+.006)), dx=ahead.x-p.x,dz=ahead.z-p.z,len=Math.hypot(dx,dz)||1;
+	    const x=p.x+(-dz/len)*side*dist+(dx/len)*alongJitter,z=p.z+(dx/len)*side*dist+(dz/len)*alongJitter,y=gameHeight(path,x,z);
+	    if(hashRand(i+421)<.78){
+	      const sp=new THREE.Sprite(grassMat.clone());sp.position.set(x,y+.45,z);const sc=.65+hashRand(i+425)*2.3;sp.scale.set(sc*.62,sc,1);group.add(sp);
+	    }else{
+	      const sp=new THREE.Sprite(rockMat.clone());sp.position.set(x,y+.25,z);const sc=1.1+hashRand(i+429)*3.6;sp.scale.set(sc*1.7,sc,1);group.add(sp);
+	    }
+	  }
+	  for(let i=0;i<260;i++){
+	    const p=gameAlong(path,hashRand(i+701)), side=hashRand(i+709)>.5?1:-1, dist=38+hashRand(i+713)*185;
+	    const ahead=gameAlong(path,Math.min(1,hashRand(i+701)+.007)), dx=ahead.x-p.x,dz=ahead.z-p.z,len=Math.hypot(dx,dz)||1;
+	    const x=p.x+(-dz/len)*side*dist+(hashRand(i+717)-.5)*24,z=p.z+(dx/len)*side*dist+(hashRand(i+721)-.5)*24,y=gameHeight(path,x,z);
+	    if(y>88&&hashRand(i+725)<.72)continue;
+	    const sp=new THREE.Sprite(treeMat.clone()), sc=2.8+hashRand(i+729)*7.2;
+	    sp.position.set(x,y+sc*.48,z);sp.scale.set(sc*.72,sc,1);group.add(sp);
+	  }
+	  return group;
+	}
+	function terrainTexture(){
+	  const c=document.createElement('canvas'), size=256;c.width=c.height=size;
+	  const ctx=c.getContext('2d'), img=ctx.createImageData(size,size);
+	  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+	    const i=(y*size+x)*4;
+	    const n=(Math.sin(x*.21)+Math.cos(y*.17)+Math.sin((x+y)*.07)+hashRand(x*17+y*31)*2)/5;
+	    const moss=94+n*28, rock=112+n*22;
+	    img.data[i]=Math.max(70,rock*.9);img.data[i+1]=Math.max(82,moss);img.data[i+2]=Math.max(62,rock*.7);img.data[i+3]=255;
+	  }
+	  ctx.putImageData(img,0,0);
+	  const tex=new THREE.CanvasTexture(c);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(18,18);tex.colorSpace=THREE.SRGBColorSpace;
+	  return tex;
+	}
+	function applyImageryTexture(material,k){
+	  const co=HIKES[k].coords, lons=co.map(c=>c[0]), lats=co.map(c=>c[1]);
+	  const pad=.01, bbox=[Math.min(...lons)-pad,Math.min(...lats)-pad,Math.max(...lons)+pad,Math.max(...lats)+pad].join(',');
+	  const url='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox='+bbox+'&bboxSR=4326&imageSR=4326&size=1600,1600&format=jpg&f=image';
+	  const loader=new THREE.TextureLoader();loader.setCrossOrigin('anonymous');
+	  loader.load(url,tex=>{
+	    tex.colorSpace=THREE.SRGBColorSpace;
+	    tex.wrapS=tex.wrapT=THREE.ClampToEdgeWrapping;
+	    material.map=tex;material.vertexColors=false;material.color.set(0xffffff);material.needsUpdate=true;
+	  },undefined,()=>{});
+	}
+	function trailGeometry(points,width){
+	  const positions=[],indices=[];
+	  for(let i=0;i<points.length;i++){
+	    const prev=points[Math.max(0,i-1)], next=points[Math.min(points.length-1,i+1)];
+	    const dx=next.x-prev.x,dz=next.z-prev.z,len=Math.hypot(dx,dz)||1;
+	    const nx=-dz/len,nz=dx/len,w=width*(.85+hashRand(i+303)*.3);
+	    positions.push(points[i].x+nx*w,points[i].y,points[i].z+nz*w,points[i].x-nx*w,points[i].y,points[i].z-nz*w);
+	    if(i<points.length-1){const j=i*2;indices.push(j,j+1,j+2,j+1,j+3,j+2);}
+	  }
+	  const geo=new THREE.BufferGeometry();
+	  geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+	  geo.setIndex(indices);geo.computeVertexNormals();
+	  return geo;
+	}
+	function buildGameWorld(k){
+	  if(!window.THREE){alert('Three.js did not load. Check your connection and reload.');return;}
+	  const host=document.getElementById('gameWorld');host.textContent='';
+	  const scene=new THREE.Scene();scene.background=new THREE.Color(0xaebfcb);scene.fog=new THREE.Fog(0xaebfcb,95,620);
+	  const camera=new THREE.PerspectiveCamera(58,host.clientWidth/host.clientHeight,0.1,1200);
+	  const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(host.clientWidth,host.clientHeight);host.appendChild(renderer.domElement);
+	  scene.add(new THREE.AmbientLight(0xffffff,.72));
+	  scene.add(new THREE.HemisphereLight(0xdbeaff,0x3f4639,1.7));
+	  const sun=new THREE.DirectionalLight(0xfff0d8,1.55);sun.position.set(-80,260,220);scene.add(sun);
+	  const path=gamePathFor(k), xs=path.pts.map(p=>p.x), zs=path.pts.map(p=>p.z);
+	  const minX=Math.min(...xs)-620,maxX=Math.max(...xs)+620,minZ=Math.min(...zs)-620,maxZ=Math.max(...zs)+620;
+	  const cols=170,rows=170,geo=new THREE.PlaneGeometry(maxX-minX,maxZ-minZ,cols,rows);
+	  geo.rotateX(-Math.PI/2);geo.translate((minX+maxX)/2,0,(minZ+maxZ)/2);
+	  const colors=[];
+	  for(let i=0;i<geo.attributes.position.count;i++){
+	    const x=geo.attributes.position.getX(i),z=geo.attributes.position.getZ(i),y=gameHeight(path,x,z);
+	    geo.attributes.position.setY(i,y);
+	    const c=y>90?new THREE.Color(0xd9ddd3):y>55?new THREE.Color(0x888264):new THREE.Color(0x5b6846);
+	    if(y<28)c.lerp(new THREE.Color(0x716a55),.4);
+	    if(hashRand(i+991)>.55)c.lerp(new THREE.Color(0x292c24),.08);
+	    colors.push(c.r,c.g,c.b);
+	  }
+	  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
+	  const terrainMat=new THREE.MeshBasicMaterial({map:terrainTexture(),vertexColors:true,color:0xf4f1e8});
+	  applyImageryTexture(terrainMat,k);
+	  const terrain=new THREE.Mesh(geo,terrainMat);scene.add(terrain);
+	  let trailGroup=buildTrailGroup(path);scene.add(trailGroup);
+	  const scrubMat=new THREE.MeshStandardMaterial({color:0x263222,roughness:1,transparent:true,opacity:.24});
+	  const scrubGeo=new THREE.PlaneGeometry(3.8,1.8);
+	  for(let i=0;i<120;i++){
+	    const base=path.pts[Math.floor(hashRand(i+19)*(path.pts.length-1))], ang=hashRand(i+31)*Math.PI*2, r=34+hashRand(i+47)*145;
+	    const x=base.x+Math.cos(ang)*r,z=base.z+Math.sin(ang)*r,y=gameHeight(path,x,z);
+	    if(y>72||hashRand(i+71)<.45)continue;
+	    const scrub=new THREE.Mesh(scrubGeo,scrubMat);
+	    scrub.position.set(x,y+.55,z);scrub.rotation.set(-Math.PI/2,0,hashRand(i+88)*Math.PI);scrub.scale.setScalar(.7+hashRand(i+83)*1.8);scene.add(scrub);
+	  }
+	  const dressing=buildDressing(path);scene.add(dressing);
+	  gameWorld={scene,camera,renderer,path,host,terrain,trailGroup,dressing};
+	  applyTerrariumDEM(gameWorld,k,{minX,maxX,minZ,maxZ});
+	  window.onresize=()=>{if(!gameWorld)return;const w=host.clientWidth,h=host.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);};
+	}
+	function frameGame(pe){
+	  if(!gameWorld)buildGameWorld(key);
+	  const path=gameWorld.path, p=gameAlong(path,pe), ahead=gameAlong(path,Math.min(1,pe+.018));
+	  const eyeY=gameHeight(path,p.x,p.z)+4.2, targetY=gameHeight(path,ahead.x,ahead.z)+3.7;
+	  const eye=new THREE.Vector3(p.x,eyeY,p.z), target=new THREE.Vector3(ahead.x,targetY,ahead.z);
+	  gameWorld.camera.position.copy(eye);gameWorld.camera.lookAt(target);
+	  gameWorld.renderer.render(gameWorld.scene,gameWorld.camera);
+	}
+	function frameAt(pe){
+		  if(mode==='game'){frameGame(pe);return;}
+  // Camera altitude is absolute elevation in meters. Walk mode hugs the trail;
+  // fly/cinematic modes intentionally ride well above it.
+		  const walk=mode==='walk', cinematic=mode==='cinema';
+		  const behind=walk?0:cinematic?0.045:0.03, ahead=walk?0.0035:cinematic?0.08:0.05;
+	  const cp=Math.max(0,pe-behind), tp=Math.min(1,pe+ahead);
+	  const cLL=along(CO,CD,cp), tLL=along(CO,CD,tp);
+		  let cg=terrainAt(cLL,cp), tg=terrainAt(tLL,tp), camAlt, tgtAlt;
+		  if(walk){
+		    const rise=Math.abs(tg-cg), run=Math.max(1,hav(cLL,tLL));
+		    const grade=Math.min(1,rise/run);
+		    const danger=Math.max(0,Math.min(1,(grade-.18)/.32));
+		    const pitch=78-danger*20;
+		    const zoom=19.4-danger*1.2;
+		    map.jumpTo({center:tLL,zoom,pitch,bearing:bearing(cLL,tLL)});
+		    return;
+		  }else if(cinematic){
+		    camAlt=cg+260; tgtAlt=tg+24;
+		  }else{
+		    camAlt=cg+205; tgtAlt=tg+12;   // aerial chase looks down at the trail ahead
+		  }
   map.jumpTo(map.calculateCameraOptionsFromTo(
     new maplibregl.LngLat(cLL[0],cLL[1]), camAlt,
     new maplibregl.LngLat(tLL[0],tLL[1]), tgtAlt));
@@ -189,17 +634,32 @@ function step(ts){
   if(!t0)t0=ts;
   let p=Math.min(1,(ts-t0)/dur), pe=easeIO(p);
   frameAt(pe);
+  drawProfile(key,pe);
   document.getElementById('bar').style.width=(p*100)+'%';
   if(p<1&&flying){raf=requestAnimationFrame(step);} else {stopFly();}
 }
 
 function buildTabs(){
-  const t=document.getElementById('tabs');
-  t.innerHTML=Object.keys(HIKES).map(k=>'<button class="tab" data-k="'+k+'">'+HIKES[k].title+'</button>').join('');
-  t.querySelectorAll('.tab').forEach(b=>b.onclick=()=>loadHike(b.dataset.k,true));
-}
+	  const t=document.getElementById('tabs');
+	  t.textContent='';
+	  Object.keys(HIKES).forEach(k=>{
+	    const b=document.createElement('button');
+	    b.className='tab';
+	    b.type='button';
+	    b.dataset.k=k;
+	    b.textContent=HIKES[k].title;
+	    b.setAttribute('aria-pressed','false');
+	    b.onclick=()=>loadHike(k,true);
+	    t.appendChild(b);
+	  });
+	}
 document.getElementById('play').onclick=()=>{(flying&&mode==='fly')?stopFly():startFly('fly');};
 document.getElementById('walk').onclick=()=>{(flying&&mode==='walk')?stopFly():startFly('walk');};
+document.getElementById('game').onclick=()=>{(flying&&mode==='game')?stopFly():startFly('game');};
+document.getElementById('cine').onclick=()=>{(flying&&mode==='cinema')?stopFly():startFly('cinema');};
+document.getElementById('heroCine').onclick=()=>startFly('cinema');
+document.getElementById('heroGame').onclick=()=>startFly('game');
+document.getElementById('heroExplore').onclick=()=>document.body.classList.add('exploring');
 document.getElementById('reset').onclick=()=>{stopFly();resetView();};
 document.getElementById('exa').oninput=function(){document.getElementById('exav').textContent=(+this.value).toFixed(1);
   map.setTerrain({source:'dem',exaggeration:flying?Math.min(+this.value,1.0):+this.value});};
