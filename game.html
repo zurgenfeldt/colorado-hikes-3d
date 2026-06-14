@@ -111,95 +111,144 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(12000,32,16),
 scene.add(sky);
 
 // ---------- terrain ----------
-function colorFor(el,slope){
-  const c=new THREE.Color();
-  const L=(a,b,t)=>a+(b-a)*Math.min(Math.max(t,0),1);
+function clamp01(v){return v<0?0:v>1?1:v;}
+function albedo(el,slope){ // returns [r,g,b] 0..1
+  const L=(a,b,t)=>a+(b-a)*clamp01(t);
   let r,g,b;
-  if(el<3500){const t=(el-3130)/370; r=L(0.17,0.27,t);g=L(0.27,0.37,t);b=L(0.13,0.19,t);} // forest (deep green)
-  else if(el<3720){const t=(el-3500)/220; r=L(0.27,0.42,t);g=L(0.37,0.42,t);b=L(0.19,0.29,t);} // tundra
-  else if(el<3920){const t=(el-3720)/200; r=L(0.42,0.55,t);g=L(0.42,0.53,t);b=L(0.30,0.52,t);} // rock/scree
-  else {const t=(el-3920)/180; r=L(0.66,0.96,t);g=L(0.68,0.97,t);b=L(0.72,1.0,t);} // snow on the highest peaks
-  // expose rock on steep slopes
-  const rock=Math.min(Math.max((slope-0.5)/0.4,0),1)*(el<3700?0.7:0.2);
-  r=L(r,0.46,rock);g=L(g,0.44,rock);b=L(b,0.42,rock);
-  c.setRGB(r,g,b);return c;
+  if(el<3500){const t=(el-3130)/370; r=L(0.13,0.24,t);g=L(0.24,0.35,t);b=L(0.10,0.17,t);}      // forest
+  else if(el<3720){const t=(el-3500)/220; r=L(0.24,0.38,t);g=L(0.35,0.40,t);b=L(0.17,0.26,t);} // tundra
+  else if(el<3920){const t=(el-3720)/200; r=L(0.38,0.50,t);g=L(0.38,0.48,t);b=L(0.27,0.47,t);} // rock/scree
+  else {const t=(el-3920)/180; r=L(0.68,0.97,t);g=L(0.70,0.98,t);b=L(0.74,1.0,t);}             // snow
+  const rock=clamp01((slope-0.42)/0.4)*(el<3850?0.78:0.25);
+  r=L(r,0.40,rock);g=L(g,0.38,rock);b=L(b,0.36,rock);
+  return [r,g,b];
 }
-const N=320;
+// bake a detailed ground texture (grass/rock/snow + multi-scale variation)
+function buildAlbedoTex(){
+  const TEX=1024, cv=document.createElement('canvas');cv.width=cv.height=TEX;
+  const ctx=cv.getContext('2d'), im=ctx.createImageData(TEX,TEX), d=im.data;
+  for(let py=0;py<TEX;py++){const z=-Dp/2+Dp*py/(TEX-1), lat=latOf(z);
+    for(let px=0;px<TEX;px++){const x=-W/2+W*px/(TEX-1), lon=lonOf(x);
+      const el=demAt(lon,lat);
+      const hx=demAt(lonOf(x+8),lat)-demAt(lonOf(x-8),lat), hz=demAt(lon,latOf(z+8))-demAt(lon,latOf(z-8));
+      const slope=Math.hypot(hx,hz)/16;
+      const c=albedo(el,slope);
+      const det=(fbm(x*0.55,z*0.55)-0.5)*0.55+(fbm(x*0.15,z*0.15)-0.5)*0.45;
+      const mul=clamp01(1+det*0.55);
+      const k=(py*TEX+px)*4;
+      d[k]=clamp01(c[0]*mul)*255; d[k+1]=clamp01(c[1]*mul)*255; d[k+2]=clamp01(c[2]*mul)*255; d[k+3]=255;
+    }}
+  ctx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(cv); t.flipY=false; t.encoding=THREE.sRGBEncoding; t.anisotropy=8; t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping; return t;
+}
+// tileable detail normal map for micro surface relief that catches the sun
+function buildNormalTex(rep){
+  const SZ=256, cv=document.createElement('canvas');cv.width=cv.height=SZ;
+  const ctx=cv.getContext('2d'), im=ctx.createImageData(SZ,SZ), d=im.data;
+  const hf=(i,j)=>fbm((i&255)/SZ*18,(j&255)/SZ*18);
+  for(let j=0;j<SZ;j++)for(let i=0;i<SZ;i++){
+    let nx=hf(i-1,j)-hf(i+1,j), ny=hf(i,j-1)-hf(i,j+1), nz=0.45;
+    const L=Math.hypot(nx,ny,nz)||1; nx/=L;ny/=L;nz/=L;
+    const k=(j*SZ+i)*4; d[k]=(nx*.5+.5)*255; d[k+1]=(ny*.5+.5)*255; d[k+2]=(nz*.5+.5)*255; d[k+3]=255;
+  }
+  ctx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(rep,rep); t.anisotropy=4; return t;
+}
+const N=340;
 function buildTerrain(){
   const g=new THREE.BufferGeometry();
-  const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*3);
+  const pos=new Float32Array(N*N*3), uv=new Float32Array(N*N*2);
   for(let j=0;j<N;j++)for(let i=0;i<N;i++){
-    const x=-W/2+W*i/(N-1), z=-Dp/2+Dp*j/(N-1), y=H(x,z), k=(j*N+i)*3;
-    pos[k]=x;pos[k+1]=y;pos[k+2]=z;
-  }
-  // colors from elevation + slope (slope from neighbor heights)
-  for(let j=0;j<N;j++)for(let i=0;i<N;i++){
-    const k=(j*N+i)*3, y=pos[k+1];
-    const xl=Math.max(i-1,0),xr=Math.min(i+1,N-1),zt=Math.max(j-1,0),zb=Math.min(j+1,N-1);
-    const hx=pos[(j*N+xr)*3+1]-pos[(j*N+xl)*3+1], hz=pos[(zb*N+i)*3+1]-pos[(zt*N+i)*3+1];
-    const step=W/(N-1)*2;
-    const slope=Math.hypot(hx,hz)/step;
-    const x=-W/2+W*i/(N-1), z=-Dp/2+Dp*j/(N-1);
-    const mot=(0.80+0.34*vnoise(x*0.045,z*0.045))*(0.90+0.18*vnoise(x*0.21,z*0.21)); // multi-scale detail
-    const c=colorFor(y,slope); col[k]=c.r*mot;col[k+1]=c.g*mot;col[k+2]=c.b*mot;
+    const x=-W/2+W*i/(N-1), z=-Dp/2+Dp*j/(N-1), k=(j*N+i)*3, u=(j*N+i)*2;
+    pos[k]=x;pos[k+1]=H(x,z);pos[k+2]=z; uv[u]=i/(N-1); uv[u+1]=j/(N-1);
   }
   const idx=[];
-  for(let j=0;j<N-1;j++)for(let i=0;i<N-1;i++){
-    const a=j*N+i,b=j*N+i+1,d=(j+1)*N+i,e=(j+1)*N+i+1;idx.push(a,d,b,b,d,e);}
+  for(let j=0;j<N-1;j++)for(let i=0;i<N-1;i++){const a=j*N+i,b=j*N+i+1,dd=(j+1)*N+i,e=(j+1)*N+i+1;idx.push(a,dd,b,b,dd,e);}
   g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
   g.setIndex(idx); g.computeVertexNormals();
-  const m=new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.96,metalness:0.0});
-  const mesh=new THREE.Mesh(g,m); mesh.receiveShadow=true; mesh.castShadow=false; // self-shadow causes acne; trees still cast
-  return mesh;
+  const m=new THREE.MeshStandardMaterial({map:buildAlbedoTex(),normalMap:buildNormalTex(Math.round(W/11)),
+    normalScale:new THREE.Vector2(0.6,0.6),roughness:0.97,metalness:0.0});
+  const mesh=new THREE.Mesh(g,m); mesh.receiveShadow=true; mesh.castShadow=false; return mesh;
 }
 scene.add(buildTerrain());
 
 // ---------- trees ----------
 function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function mergeGeo(gs){let tot=0;const ng=gs.map(g=>g.toNonIndexed());ng.forEach(g=>tot+=g.attributes.position.count);
+  const pos=new Float32Array(tot*3),nor=new Float32Array(tot*3);let o=0;
+  ng.forEach(g=>{pos.set(g.attributes.position.array,o*3);nor.set(g.attributes.normal.array,o*3);o+=g.attributes.position.count;});
+  const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.BufferAttribute(pos,3));G.setAttribute('normal',new THREE.BufferAttribute(nor,3));return G;}
+function coniferGeo(){ // 3 stacked cones, total height ~1
+  const c1=new THREE.ConeGeometry(1.0,0.5,7);c1.translate(0,0.25,0);
+  const c2=new THREE.ConeGeometry(0.72,0.45,7);c2.translate(0,0.50,0);
+  const c3=new THREE.ConeGeometry(0.45,0.42,7);c3.translate(0,0.78,0);
+  return mergeGeo([c1,c2,c3]);
+}
 function addTrees(){
-  const rnd=mulberry(1337), CAND=26000;
-  const folM=new THREE.MeshStandardMaterial({color:0x2f5135,roughness:1,flatShading:true});
-  const trkM=new THREE.MeshStandardMaterial({color:0x4a3826,roughness:1});
-  const folG=new THREE.ConeGeometry(1,1,6), trkG=new THREE.CylinderGeometry(0.12,0.18,1,5);
+  const rnd=mulberry(1337), CAND=46000;
+  const folM=new THREE.MeshStandardMaterial({roughness:1,flatShading:true});
+  const trkM=new THREE.MeshStandardMaterial({color:0x46341f,roughness:1});
+  const folG=coniferGeo();
+  const trkG=new THREE.CylinderGeometry(0.10,0.16,1,5);trkG.translate(0,0.5,0);
   const list=[];
   for(let n=0;n<CAND;n++){
     const x=-W/2+rnd()*W, z=-Dp/2+rnd()*Dp, y=H(x,z);
-    if(y>3520) continue;
+    if(y>3560) continue;
     const hx=H(x+3,z)-H(x-3,z), hz=H(x,z+3)-H(x,z-3), slope=Math.hypot(hx,hz)/6;
-    if(slope>0.62) continue;
-    // density: denser lower, thinning toward treeline
-    const dens=Math.max(0, 0.9-(y-3150)/520);
+    if(slope>0.72) continue;
+    const dens=clamp01(0.97-(y-3150)/540);
     if(rnd()>dens) continue;
-    list.push([x,y,z, 5+rnd()*9, 0.7+rnd()*0.7, rnd()*6.28]);
+    list.push([x,y,z, 5+rnd()*12, 1.0+rnd()*1.4, rnd()*6.28, rnd()]);
   }
   const fol=new THREE.InstancedMesh(folG,folM,list.length);
   const trk=new THREE.InstancedMesh(trkG,trkM,list.length);
   fol.castShadow=true; trk.castShadow=true; fol.receiveShadow=true;
-  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3();
+  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3(),col=new THREE.Color();
   for(let n=0;n<list.length;n++){
-    const[x,y,z,h,w,ry]=list[n];
+    const[x,y,z,h,w,ry,cv2]=list[n];
     q.setFromEuler(new THREE.Euler(0,ry,0));
-    // trunk
-    p.set(x,y+h*0.18,z); s.set(1,h*0.36,1); m.compose(p,q,s); trk.setMatrixAt(n,m);
-    // foliage (stacked look via single tall cone)
-    p.set(x,y+h*0.62,z); s.set(w,h*0.82,w); m.compose(p,q,s); fol.setMatrixAt(n,m);
+    p.set(x,y,z); s.set(0.9,0.22*h,0.9); m.compose(p,q,s); trk.setMatrixAt(n,m);
+    p.set(x,y+0.18*h,z); s.set(w,0.86*h,w); m.compose(p,q,s); fol.setMatrixAt(n,m);
+    col.setRGB(0.10+0.10*cv2, 0.20+0.16*cv2, 0.11+0.07*cv2); fol.setColorAt(n,col);
   }
+  fol.instanceColor.needsUpdate=true;
   scene.add(fol); scene.add(trk);
   return list.length;
 }
 const treeCount=addTrees();
+function addRocks(){
+  const rnd=mulberry(99), G=new THREE.IcosahedronGeometry(1,0);
+  const M=new THREE.MeshStandardMaterial({roughness:1,flatShading:true});
+  const list=[];
+  for(let n=0;n<14000;n++){
+    const x=-W/2+rnd()*W, z=-Dp/2+rnd()*Dp, y=H(x,z);
+    const hx=H(x+3,z)-H(x-3,z), hz=H(x,z+3)-H(x,z-3), slope=Math.hypot(hx,hz)/6;
+    const pr=(y>3650?0.5:0.08)+(slope>0.5?0.45:0);
+    if(rnd()>pr*0.5) continue;
+    list.push([x,y,z, 0.4+rnd()*2.8, rnd()*6.28, rnd()*6.28, rnd()]);
+  }
+  const inst=new THREE.InstancedMesh(G,M,list.length); inst.castShadow=true; inst.receiveShadow=true;
+  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3(),col=new THREE.Color();
+  for(let n=0;n<list.length;n++){const[x,y,z,sz,rx,ry,cv2]=list[n];
+    q.setFromEuler(new THREE.Euler(rx,ry,rx*0.5)); p.set(x,y+sz*0.25,z); s.set(sz,sz*0.72,sz); m.compose(p,q,s); inst.setMatrixAt(n,m);
+    const gg=0.42+0.22*cv2; col.setRGB(gg*1.06,gg,gg*0.9); inst.setColorAt(n,col);}
+  inst.instanceColor.needsUpdate=true; scene.add(inst); return list.length;
+}
+addRocks();
 
 // ---------- water (lakes) ----------
-const waterMeshes=[];
+const waterMeshes=[]; let waterNrm=null;
 function addWater(){
+  waterNrm=buildNormalTex(7);
   D.markers.forEach(m=>{
     if(!/lake|finish/.test(m.i) && !/Lake/.test(m.n)) return;
     const x=wx(m.lng), z=wz(m.lat), el=demAt(m.lng,m.lat);
     const r=/Upper/.test(m.n)?70:95;
-    const w=new THREE.Mesh(new THREE.CircleGeometry(r,40),
-      new THREE.MeshStandardMaterial({color:0x33617f,roughness:0.08,metalness:0.2,transparent:true,opacity:0.86}));
-    w.rotation.x=-Math.PI/2; w.position.set(x,el+1.2,z); w.receiveShadow=true;
+    const w=new THREE.Mesh(new THREE.CircleGeometry(r,48),
+      new THREE.MeshStandardMaterial({color:0x214a64,roughness:0.05,metalness:0.0,transparent:true,opacity:0.92,
+        normalMap:waterNrm,normalScale:new THREE.Vector2(0.22,0.22)}));
+    w.rotation.x=-Math.PI/2; w.position.set(x,el+1.0,z); w.receiveShadow=true;
     scene.add(w); waterMeshes.push(w);
   });
 }
@@ -253,6 +302,7 @@ function frame(now){
   requestAnimationFrame(frame);
   if(window.__pause){last=now;return;}
   const dt=Math.min((now-last)/1000,0.05); last=now;
+  if(waterNrm){waterNrm.offset.x+=dt*0.012; waterNrm.offset.y+=dt*0.008;}
   if(mode==='auto'){
     t+=dt*(SPD*0.55)/TLEN; if(t>=1){t=1;}
     const pc=curve.getPointAt(t), pa=curve.getPointAt(Math.min(1,t+0.004));
