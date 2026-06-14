@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Colorado Hikes — 3D flythrough</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:linear-gradient(180deg,#9cc0e2 0%,#bcd6ea 45%,#dde9f3 70%,#eef4f9 100%)}
+  #map{position:absolute;inset:0;background:transparent}
+  .maplibregl-canvas{background:transparent}
+  .panel{position:absolute;z-index:5;color:#fff}
+  #top{top:12px;left:12px;max-width:min(92vw,420px)}
+  #top h1{margin:0 0 2px;font-size:17px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+  #top p{margin:0 0 8px;font-size:12px;opacity:.85;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .tab{padding:6px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:rgba(18,22,28,.6);
+    backdrop-filter:blur(6px);color:#fff;font-size:13px;cursor:pointer}
+  .tab.on{background:#ff5a2b;border-color:#ff5a2b}
+  #ctl{bottom:14px;left:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .btn{padding:8px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:rgba(18,22,28,.62);
+    backdrop-filter:blur(6px);color:#fff;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+  .btn:hover{background:rgba(40,46,54,.8)}
+  .btn.on{background:#1d6fb8;border-color:#1d6fb8}
+  .exa{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.28);
+    background:rgba(18,22,28,.62);backdrop-filter:blur(6px);font-size:12px}
+  .exa input{width:90px}
+  #stats{top:12px;right:12px;text-align:right;font-size:12px;text-shadow:0 1px 4px rgba(0,0,0,.7);min-width:120px}
+  #stats b{font-size:20px;font-weight:600}
+  #bar{position:absolute;left:0;bottom:0;height:3px;background:#ff5a2b;width:0;z-index:6;transition:width .05s linear}
+  .mk{display:flex;flex-direction:column;align-items:center;pointer-events:none;transform:translateY(-50%)}
+  .mk .dot{width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  .mk .lab{margin-top:3px;font-size:11px;color:#fff;background:rgba(12,16,20,.72);padding:2px 6px;border-radius:6px;
+    white-space:nowrap;text-shadow:none}
+  #hint{bottom:14px;right:12px;font-size:11px;opacity:.8;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="bar"></div>
+<div class="panel" id="top">
+  <h1 id="title">Colorado hikes — 3D</h1>
+  <p id="sub"></p>
+  <div class="tabs" id="tabs"></div>
+</div>
+<div class="panel" id="stats"></div>
+<div class="panel" id="ctl">
+  <button class="btn" id="play">▶ Fly the trail</button>
+  <button class="btn" id="walk">Walk the trail</button>
+  <button class="btn" id="reset">Reset view</button>
+  <div class="exa">relief ×<span id="exav">1.4</span><input type="range" id="exa" min="1" max="3" step="0.1" value="1.4"/></div>
+</div>
+<div class="panel" id="hint">drag = rotate · right-drag/ctrl-drag = tilt · scroll = zoom</div>
+<script>
+const HIKES={"seg7":{"title":"Colorado Trail - Segment 7","sub":"Gold Hill Trailhead -> Copper Mountain","coords":[[-106.05575,39.54181],[-106.05701,39.54206],[-106.05815,39.5425],[-106.0588,39.54161],[-106.05891,39.54058],[-106.05926,39.53954],[-106.05973,39.53855],[-106.06011,39.53753],[-106.06037,39.53653],[-106.0609,39.53557],[-106.06147,39.53462],[-106.06255,39.53471],[-106.06334,39.53387],[-106.06452,39.53366],[-106.06514,39.53395],[-106.06544,39.53499],[-106.06571,39.53604],[-106.066,39.53708],[-106.06684,39.53775],[-106.06812,39.53807],[-106.06945,39.538],[-106.07084,39.53795],[-106.07224,39.53789],[-106.07364,39.53783],[-106.07504,39.53778],[-106.07643,39.53772],[-106.07783,39.53767],[-106.07923,39.53761],[-106.08063,39.53755],[-106.08151,39.53725],[-106.08078,39.53634],[-106.08027,39.53533],[-106.08001,39.53428],[-106.08093,39.53363],[-106.08209,39.53369],[-106.08327,39.53347],[-106.08453,39.53303],[-106.08553,39.53229],[-106.08673,39.53176],[-106.08791,39.5312],[-106.08886,39.53042],[-106.08989,39.53007],[-106.08912,39.53092],[-106.08936,39.53197],[-106.09011,39.53203],[-106.09132,39.53179],[-106.09271,39.53183],[-106.0941,39.53195],[-106.09546,39.53218],[-106.09665,39.5327],[-106.09785,39.53304],[-106.09884,39.53331],[-106.09814,39.53404],[-106.09854,39.53429],[-106.098,39.53518],[-106.09876,39.53515],[-106.09978,39.53516],[-106.10094,39.53472],[-106.10222,39.53487],[-106.10341,39.53486],[-106.10474,39.53471],[-106.10605,39.53438],[-106.10655,39.53454],[-106.10772,39.53415],[-106.1087,39.53347],[-106.10823,39.53249],[-106.10764,39.53152],[-106.10731,39.53051],[-106.10747,39.52945],[-106.10811,39.52851],[-106.10886,39.52765],[-106.10972,39.52682],[-106.1101,39.52581],[-106.11057,39.52483],[-106.1115,39.52404],[-106.11177,39.52301],[-106.11134,39.52203],[-106.11085,39.52171],[-106.11056,39.52154],[-106.1101,39.52079],[-106.11008,39.51971],[-106.1097,39.51869],[-106.10931,39.51766],[-106.10931,39.51659],[-106.1096,39.51555],[-106.10945,39.51448],[-106.1098,39.5135],[-106.11035,39.51252],[-106.11075,39.51149],[-106.11127,39.5105],[-106.11173,39.50952],[-106.11178,39.50845],[-106.11207,39.5074],[-106.11225,39.50651],[-106.11266,39.50602],[-106.11284,39.50541],[-106.11319,39.50504],[-106.11427,39.5044],[-106.11478,39.50343],[-106.11454,39.50237],[-106.11437,39.5013],[-106.11418,39.50023],[-106.11419,39.49917],[-106.11402,39.49812],[-106.11405,39.4971],[-106.11481,39.49621],[-106.11503,39.49515],[-106.11469,39.49414],[-106.11423,39.49312],[-106.11387,39.49208],[-106.11378,39.49102],[-106.11334,39.49001],[-106.11275,39.48904],[-106.11292,39.48798],[-106.11356,39.48705],[-106.11348,39.48601],[-106.11286,39.48506],[-106.11231,39.48413],[-106.11204,39.48311],[-106.11272,39.48245],[-106.11407,39.48224],[-106.11541,39.48221],[-106.11605,39.48142],[-106.11615,39.4804],[-106.11556,39.47946],[-106.11533,39.47844],[-106.11513,39.47759],[-106.11512,39.4767],[-106.1155,39.47616],[-106.11578,39.47598],[-106.11681,39.47669],[-106.11729,39.47765],[-106.11854,39.47759],[-106.11988,39.47787],[-106.1211,39.47837],[-106.12182,39.47928],[-106.12231,39.48029],[-106.12303,39.48117],[-106.12404,39.48183],[-106.12489,39.48267],[-106.12563,39.48355],[-106.1265,39.48438],[-106.12707,39.48535],[-106.12767,39.48632],[-106.12797,39.48737],[-106.12842,39.48838],[-106.12899,39.48935],[-106.12936,39.49037],[-106.12963,39.49134],[-106.13033,39.49225],[-106.13084,39.49324],[-106.13156,39.4941],[-106.13274,39.49465],[-106.13347,39.49553],[-106.13409,39.49646],[-106.13482,39.49737],[-106.13619,39.49751],[-106.13758,39.49765],[-106.13896,39.49779],[-106.14035,39.49794],[-106.14174,39.49808],[-106.14312,39.49822],[-106.14451,39.49837],[-106.14589,39.49851],[-106.14728,39.49865],[-106.14867,39.4988],[-106.15005,39.49894],[-106.15144,39.49908],[-106.15283,39.49923],[-106.15421,39.49937],[-106.15544,39.49901]],"ele":[2933,2943,2959,2984,2991,3004,3011,3022,3026,3037,3038,3053,3066,3068,3083,3095,3103,3108,3128,3132,3148,3143,3138,3125,3106,3103,3091,3081,3073,3060,3063,3063,3063,3062,3069,3087,3088,3102,3105,3139,3136,3153,3142,3150,3162,3180,3186,3209,3213,3234,3237,3252,3238,3248,3242,3260,3289,3291,3307,3311,3338,3341,3356,3398,3416,3408,3392,3395,3403,3441,3449,3464,3466,3487,3523,3539,3572,3572,3583,3620,3623,3600,3632,3635,3639,3637,3651,3677,3703,3702,3688,3692,3703,3731,3771,3783,3807,3807,3776,3773,3778,3780,3782,3782,3771,3753,3764,3770,3758,3758,3727,3716,3714,3702,3692,3681,3661,3676,3668,3629,3614,3586,3547,3528,3506,3492,3504,3488,3447,3431,3391,3406,3383,3361,3322,3305,3316,3310,3257,3199,3201,3188,3155,3144,3147,3156,3133,3111,3093,3076,3076,3060,3012,2990,2997,2999,2981,2978,2974,2969,2967,2966,2962,2965,2968,2973,2983,2985,3002,3001,2999],"markers":[{"n":"Gold Hill Trailhead","lat":39.5418,"lon":-106.0557,"i":"flag"},{"n":"Peaks Trail jct","lat":39.5376,"lon":-106.0817,"i":"dot"},{"n":"Tenmile crest (high point)","lat":39.5,"lon":-106.11,"i":"peak"},{"n":"Miners / Wheeler jct","lat":39.4756,"lon":-106.1154,"i":"droplet"},{"n":"Copper Mountain","lat":39.499,"lon":-106.1546,"i":"flag-finish"}],"stats":{"dist":"13.7","gain":"3,687","hi":"12,500"}},"mohawk":{"title":"Mohawk Lakes","sub":"Spruce Creek Trailhead -> Upper Mohawk Lake","coords":[[-106.06955,39.42868],[-106.07015,39.42839],[-106.07068,39.42804],[-106.07117,39.42766],[-106.07162,39.42724],[-106.07203,39.42681],[-106.07245,39.42638],[-106.07286,39.42594],[-106.0727,39.42542],[-106.07292,39.42492],[-106.07266,39.42443],[-106.0723,39.42396],[-106.07235,39.42346],[-106.07267,39.42298],[-106.07299,39.4225],[-106.07339,39.42206],[-106.07402,39.42186],[-106.07454,39.42157],[-106.07522,39.42155],[-106.07584,39.42168],[-106.0764,39.42136],[-106.07708,39.42127],[-106.07776,39.42118],[-106.07845,39.42116],[-106.07914,39.42109],[-106.07976,39.42086],[-106.08033,39.42062],[-106.08101,39.42073],[-106.08113,39.4203],[-106.08171,39.4203],[-106.08217,39.4207],[-106.08217,39.42016],[-106.08262,39.42027],[-106.08307,39.42017],[-106.08357,39.42041],[-106.08411,39.42067],[-106.08475,39.42076],[-106.08532,39.42107],[-106.08598,39.42121],[-106.08667,39.42128],[-106.08732,39.42119],[-106.08751,39.4207],[-106.08732,39.42022],[-106.08709,39.41973],[-106.08723,39.41921],[-106.08784,39.41911],[-106.08852,39.41909],[-106.08921,39.41912],[-106.08979,39.41923],[-106.09002,39.41952]],"ele":[3337,3337,3370,3388,3374,3345,3345,3348,3345,3349,3346,3346,3346,3364,3376,3384,3385,3385,3401,3406,3406,3437,3450,3449,3458,3461,3462,3462,3466,3523,3525,3525,3525,3533,3591,3599,3599,3607,3612,3609,3613,3634,3633,3633,3633,3641,3646,3646,3681,3698],"markers":[{"n":"Spruce Creek Trailhead","lat":39.4287,"lon":-106.0696,"i":"flag"},{"n":"Continental Falls","lat":39.4205,"lon":-106.08,"i":"droplet"},{"n":"Lower Mohawk Lake","lat":39.4205,"lon":-106.082,"i":"lake"},{"n":"Upper Mohawk Lake","lat":39.4215,"lon":-106.085,"i":"flag-finish"}],"stats":{"dist":"3.35","gain":"1,420","hi":"12,110"}},"mccullough":{"title":"McCullough Gulch","sub":"McCullough Gulch Trailhead -> Upper lake (below Quandary)","coords":[[-106.07926,39.40107],[-106.07962,39.40065],[-106.08024,39.40052],[-106.08085,39.40076],[-106.08121,39.40117],[-106.0817,39.40082],[-106.08171,39.40126],[-106.08201,39.4017],[-106.08253,39.40199],[-106.08304,39.40232],[-106.08373,39.40231],[-106.08436,39.40253],[-106.08481,39.40293],[-106.08524,39.40332],[-106.08565,39.40372],[-106.0861,39.40406],[-106.08652,39.40445],[-106.08695,39.40487],[-106.08752,39.40513],[-106.08811,39.40537],[-106.08877,39.40554],[-106.08939,39.40573],[-106.0899,39.40608],[-106.09038,39.40647],[-106.091,39.40666],[-106.09166,39.40667],[-106.09227,39.40665],[-106.09265,39.40624],[-106.09305,39.40657],[-106.09349,39.40676],[-106.09419,39.40676],[-106.09489,39.40677],[-106.09559,39.40677],[-106.09629,39.40678],[-106.09699,39.40678],[-106.09768,39.40679],[-106.09838,39.40679],[-106.09908,39.40678],[-106.09975,39.40665],[-106.10043,39.40651],[-106.10111,39.40638],[-106.10178,39.40624],[-106.10246,39.40611],[-106.10314,39.40597],[-106.10381,39.40584],[-106.10447,39.40566],[-106.10513,39.40547],[-106.10578,39.40529],[-106.10643,39.4051],[-106.10709,39.40491],[-106.10774,39.40472],[-106.1084,39.40453]],"ele":[3402,3402,3402,3403,3414,3425,3425,3425,3443,3462,3474,3480,3480,3476,3473,3473,3516,3553,3545,3532,3532,3525,3531,3555,3560,3556,3553,3544,3553,3553,3581,3591,3618,3647,3647,3646,3641,3641,3643,3646,3653,3672,3719,3730,3732,3759,3778,3780,3787,3787,3788,3818],"markers":[{"n":"McCullough Gulch Trailhead","lat":39.4011,"lon":-106.0793,"i":"flag"},{"n":"White Falls","lat":39.4045,"lon":-106.0905,"i":"droplet"},{"n":"Upper McCullough Lake","lat":39.4045,"lon":-106.1085,"i":"flag-finish"}],"stats":{"dist":"4.0","gain":"1,250","hi":"12,500"}},"bluelakes":{"title":"Blue Lakes","sub":"Monte Cristo Gulch -> Upper basin (Quandary / Fletcher)","coords":[[-106.08913,39.38834],[-106.08982,39.38839],[-106.09049,39.38854],[-106.09119,39.3886],[-106.09187,39.3887],[-106.09253,39.38887],[-106.09323,39.38885],[-106.0939,39.38894],[-106.09458,39.38895],[-106.09527,39.38885],[-106.09595,39.38874],[-106.09665,39.3887],[-106.09729,39.38852],[-106.09765,39.38807],[-106.09817,39.38771],[-106.09874,39.3874],[-106.09933,39.38711],[-106.09993,39.38684],[-106.10057,39.38683],[-106.10115,39.38708],[-106.10179,39.38689],[-106.10219,39.38725],[-106.10277,39.38715],[-106.10346,39.38716],[-106.10406,39.3874],[-106.10468,39.38735],[-106.10526,39.38765],[-106.10593,39.38765],[-106.10662,39.38773],[-106.10726,39.38793],[-106.10789,39.38814],[-106.10831,39.38845],[-106.10893,39.38851],[-106.10953,39.38874],[-106.11005,39.38908],[-106.11049,39.3895],[-106.11107,39.38979],[-106.11169,39.39003],[-106.11222,39.39037],[-106.11266,39.3907],[-106.11321,39.39102],[-106.11352,39.39149],[-106.11404,39.39184],[-106.11448,39.39225],[-106.11495,39.39262],[-106.11533,39.39301],[-106.11588,39.39328],[-106.1164,39.39357],[-106.11698,39.39384],[-106.11761,39.394],[-106.11824,39.39419],[-106.11889,39.39439],[-106.11934,39.39452]],"ele":[3497,3500,3501,3501,3503,3507,3507,3512,3513,3513,3529,3549,3558,3595,3592,3551,3542,3555,3574,3574,3574,3575,3580,3580,3592,3584,3639,3639,3664,3700,3712,3712,3712,3712,3714,3740,3759,3767,3767,3769,3772,3774,3780,3789,3793,3793,3793,3817,3837,3842,3860,3901,3901],"markers":[{"n":"Lower Blue Lake","lat":39.3872,"lon":-106.0945,"i":"lake"},{"n":"Blue Lakes Trail","lat":39.3905,"lon":-106.108,"i":"dot"},{"n":"Upper basin","lat":39.3945,"lon":-106.1193,"i":"flag-finish"}],"stats":{"dist":"3.0","gain":"1,300","hi":"12,750"}}};
+let key='seg7', flying=false, mode='fly', raf=null, t0=0, dur=50000, markers=[];
+
+function hav(a,b){const R=6371000,r=Math.PI/180;
+  const dla=(b[1]-a[1])*r,dlo=(b[0]-a[0])*r,la1=a[1]*r,la2=b[1]*r;
+  const h=Math.sin(dla/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dlo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));}
+function bearing(a,b){const r=Math.PI/180;
+  const y=Math.sin((b[0]-a[0])*r)*Math.cos(b[1]*r);
+  const x=Math.cos(a[1]*r)*Math.sin(b[1]*r)-Math.sin(a[1]*r)*Math.cos(b[1]*r)*Math.cos((b[0]-a[0])*r);
+  return Math.atan2(y,x)*180/Math.PI;}
+function cum(co){let d=[0];for(let i=1;i<co.length;i++)d.push(d[i-1]+hav(co[i-1],co[i]));return d;}
+function along(co,cd,p){const total=cd[cd.length-1],target=p*total;
+  let i=1;while(i<cd.length&&cd[i]<target)i++;i=Math.min(i,co.length-1);
+  const seg=cd[i]-cd[i-1]||1,t=(target-cd[i-1])/seg;
+  return [co[i-1][0]+(co[i][0]-co[i-1][0])*t, co[i-1][1]+(co[i][1]-co[i-1][1])*t];}
+const easeIO=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+
+const map=new maplibregl.Map({
+  container:'map', maxPitch:85, attributionControl:{compact:true},
+  style:{version:8,
+    glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    sources:{
+      sat:{type:'raster',tileSize:256,maxzoom:19,
+        tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        attribution:'Imagery © Esri, Maxar, Earthstar Geographics'},
+      dem:{type:'raster-dem',tileSize:256,maxzoom:14,encoding:'terrarium',
+        tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+        attribution:'Elevation: Tilezen / AWS Terrain Tiles'}
+    },
+    layers:[{id:'sat',type:'raster',source:'sat'}]
+  },
+  center:HIKES[key].coords[0], zoom:13, pitch:68, bearing:0
+});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
+
+map.on('load',()=>{
+  map.setTerrain({source:'dem',exaggeration:1.4});
+  map.setSky({'sky-color':'#9fc0e0','sky-horizon-blend':0.5,'horizon-color':'#dfeaf3',
+    'horizon-fog-blend':0.6,'fog-color':'#eef3f8','fog-ground-blend':0.5});
+  map.addSource('route',{type:'geojson',data:fc(key)});
+  map.addLayer({id:'route-cap',type:'line',source:'route',
+    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#10151b','line-width':8,'line-opacity':.4}});
+  map.addLayer({id:'route',type:'line',source:'route',
+    layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#ff5a2b','line-width':4.5}});
+  buildTabs(); loadHike(key,false);
+});
+
+function fc(k){return {type:'Feature',geometry:{type:'LineString',coordinates:HIKES[k].coords}};}
+function clearMarkers(){markers.forEach(m=>m.remove());markers=[];}
+function colorOf(t){return t==='flag'?'#37d67a':t==='flag-finish'?'#ffd23f':t==='peak'?'#ffffff':t==='lake'?'#2f9ee0':t==='droplet'?'#5bc0de':'#ff5a2b';}
+function addMarkers(k){clearMarkers();
+  HIKES[k].markers.forEach(m=>{
+    const el=document.createElement('div');el.className='mk';
+    el.innerHTML='<div class="dot" style="background:'+colorOf(m.i)+'"></div><div class="lab">'+m.n+'</div>';
+    markers.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([m.lon,m.lat]).addTo(map));
+  });
+}
+function bounds(co){let b=new maplibregl.LngLatBounds(co[0],co[0]);co.forEach(c=>b.extend(c));return b;}
+
+function loadHike(k,fit){
+  key=k; stopFly();
+  document.getElementById('title').textContent=HIKES[k].title;
+  document.getElementById('sub').textContent=HIKES[k].sub;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.k===k));
+  if(map.getSource('route'))map.getSource('route').setData(fc(k));
+  addMarkers(k);
+  renderStats(k);
+  resetView();
+}
+function resetView(){
+  stopFly();
+  const co=HIKES[key].coords;
+  map.fitBounds(bounds(co),{padding:70,duration:900,pitch:58,bearing:initBearing(co)});
+}
+function initBearing(co){return bearing(co[0],co[Math.min(co.length-1,Math.floor(co.length*0.6))]);}
+
+function renderStats(k){
+  const h=HIKES[k];let s='';
+  if(h.stats){s='<div><b>'+h.stats.hi+'</b> ft high</div><div style="opacity:.85">'+h.stats.dist+' mi · '+h.stats.gain+' ft gain</div>';}
+  document.getElementById('stats').innerHTML=s;
+}
+
+// ---- flythrough ----
+let CO=[],CD=[],ELE=[];
+function curExa(){return parseFloat(document.getElementById('exa').value);}
+function setRoute(thin){
+  if(!map.getLayer('route'))return;
+  map.setPaintProperty('route','line-width',thin?3:4.5);
+  map.setPaintProperty('route-cap','line-width',thin?5:8);
+}
+function setBtns(){
+  document.getElementById('play').innerHTML=(flying&&mode==='fly')?'⏸ Pause':'▶ Fly the trail';
+  document.getElementById('play').classList.toggle('on',flying&&mode==='fly');
+  document.getElementById('walk').innerHTML=(flying&&mode==='walk')?'⏸ Pause':'Walk the trail';
+  document.getElementById('walk').classList.toggle('on',flying&&mode==='walk');
+}
+function startFly(m){
+  mode=m; CO=HIKES[key].coords;CD=cum(CO);ELE=HIKES[key].ele||[];
+  const len=CD[CD.length-1];
+  dur=Math.max(24000,Math.min(m==='walk'?150000:80000,len/1609*(m==='walk'?9000:5200)));
+  map.setTerrain({source:'dem',exaggeration:Math.min(curExa(),1.0)}); // keep camera above the terrain while following
+  setRoute(m==='walk');
+  flying=true;t0=0;setBtns();
+  raf=requestAnimationFrame(step);
+}
+function stopFly(){flying=false;if(raf)cancelAnimationFrame(raf);raf=null;
+  map.setTerrain({source:'dem',exaggeration:curExa()});
+  setRoute(false);setBtns();document.getElementById('bar').style.width='0';}
+// embedded ground elevation (m) interpolated along the route at progress p
+function gnd(p){var n=ELE.length; if(!n)return 3300; var f=p*(n-1),i=Math.min(Math.floor(f),n-2),t=f-i; return ELE[i]+(ELE[i+1]-ELE[i])*t;}
+// live rendered-terrain elevation; null until tiles load
+function liveG(ll){var e=map.queryTerrainElevation(new maplibregl.LngLat(ll[0],ll[1]),{exaggerated:true});return (e==null||isNaN(e))?null:e;}
+function frameAt(pe){
+  // real 3D camera behind+above the hiker, aimed at the trail just ahead — altitude from embedded DEM,
+  // clamped up to live terrain so the camera can never sink below the ground.
+  const walk=mode==='walk';
+  const behind=walk?0.0006:0.03, ahead=walk?0.012:0.05;
+  const cp=Math.max(0,pe-behind), tp=Math.min(1,pe+ahead);
+  const cLL=along(CO,CD,cp), tLL=along(CO,CD,tp);
+  let cg=gnd(cp), camAlt, tgtAlt;
+  if(walk){
+    const lc=liveG(cLL); if(lc!=null)cg=Math.max(cg,lc); // never sink below the rendered ground
+    camAlt=cg+7; tgtAlt=camAlt-3;       // eye height, look gently forward (steady regardless of grade)
+  }else{
+    camAlt=cg+205; tgtAlt=gnd(tp)+12;   // aerial chase looks down at the trail ahead
+  }
+  map.jumpTo(map.calculateCameraOptionsFromTo(
+    new maplibregl.LngLat(cLL[0],cLL[1]), camAlt,
+    new maplibregl.LngLat(tLL[0],tLL[1]), tgtAlt));
+}
+function step(ts){
+  if(!t0)t0=ts;
+  let p=Math.min(1,(ts-t0)/dur), pe=easeIO(p);
+  frameAt(pe);
+  document.getElementById('bar').style.width=(p*100)+'%';
+  if(p<1&&flying){raf=requestAnimationFrame(step);} else {stopFly();}
+}
+
+function buildTabs(){
+  const t=document.getElementById('tabs');
+  t.innerHTML=Object.keys(HIKES).map(k=>'<button class="tab" data-k="'+k+'">'+HIKES[k].title+'</button>').join('');
+  t.querySelectorAll('.tab').forEach(b=>b.onclick=()=>loadHike(b.dataset.k,true));
+}
+document.getElementById('play').onclick=()=>{(flying&&mode==='fly')?stopFly():startFly('fly');};
+document.getElementById('walk').onclick=()=>{(flying&&mode==='walk')?stopFly():startFly('walk');};
+document.getElementById('reset').onclick=()=>{stopFly();resetView();};
+document.getElementById('exa').oninput=function(){document.getElementById('exav').textContent=(+this.value).toFixed(1);
+  map.setTerrain({source:'dem',exaggeration:flying?Math.min(+this.value,1.0):+this.value});};
+map.on('dragstart',()=>{if(flying)stopFly();});
+</script>
+</body>
+</html>
