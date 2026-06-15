@@ -58,7 +58,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth,innerHeight);
 renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.outputEncoding=THREE.sRGBEncoding;
-renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=0.95;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.5,16000);
 
@@ -93,16 +93,17 @@ function H(x,z){ // world height in meters: real DEM + micro relief
 const eMin=Math.min.apply(null,dem.elev), eMax=Math.max.apply(null,dem.elev);
 
 // ---------- lighting / sky / fog ----------
-const SUN=new THREE.DirectionalLight(0xfff1d8,3.0);
+const SUN=new THREE.DirectionalLight(0xffe9c4,2.1);
 sunDir(); function sunDir(){SUN.position.set(-0.55,0.7,0.45).multiplyScalar(4000);}
 SUN.castShadow=true; SUN.shadow.mapSize.set(2048,2048);
 const sc=Math.max(W,Dp)*0.62;
 Object.assign(SUN.shadow.camera,{left:-sc,right:sc,top:sc,bottom:-sc,near:100,far:9000});
 SUN.shadow.bias=-0.0004; SUN.shadow.normalBias=2.5; scene.add(SUN); scene.add(SUN.target);
-scene.add(new THREE.HemisphereLight(0xbcd0e6,0x6a5a3c,0.32));
-scene.add(new THREE.AmbientLight(0xffffff,0.12));
-const SKYTOP=new THREE.Color(0x3f74b8), SKYBOT=new THREE.Color(0xdeebf5);
-scene.fog=new THREE.Fog(0xc6d7ea, Math.max(W,Dp)*1.05, Math.max(W,Dp)*2.7);
+scene.add(new THREE.HemisphereLight(0xbcccdd,0x5b5436,0.32));
+scene.add(new THREE.AmbientLight(0xffffff,0.14));
+const SKYTOP=new THREE.Color(0x4f7fbe), SKYBOT=new THREE.Color(0xe7eef4);
+const HAZE=0xd7e0e8;
+scene.fog=new THREE.FogExp2(HAZE, 0.00085); // aerial haze between the trees
 const sky=new THREE.Mesh(new THREE.SphereGeometry(12000,32,16),
   new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,
     uniforms:{top:{value:SKYTOP},bot:{value:SKYBOT}},
@@ -237,6 +238,55 @@ function addRocks(){
 }
 addRocks();
 
+// ---------- grass ground cover (camera-anchored, wind-animated) ----------
+function grassTex(){
+  const S=64,cv=document.createElement('canvas');cv.width=cv.height=S;const x=cv.getContext('2d');const r=mulberry(5);
+  x.clearRect(0,0,S,S);
+  for(let b=0;b<7;b++){const bx=6+r()*52,w=1.5+r()*2.2,h=34+r()*26,lean=(r()-0.5)*16;
+    const g=x.createLinearGradient(0,S,0,S-h);g.addColorStop(0,'#33561e');g.addColorStop(1,'#88b557');
+    x.fillStyle=g;x.beginPath();x.moveTo(bx-w,S);
+    x.quadraticCurveTo(bx-w+lean,S-h*0.6,bx+lean,S-h);
+    x.quadraticCurveTo(bx+w+lean,S-h*0.6,bx+w,S);x.closePath();x.fill();}
+  const t=new THREE.CanvasTexture(cv);t.encoding=THREE.sRGBEncoding;return t;
+}
+function clumpGeo(){
+  const quads=3,pos=[],uvs=[],aH=[],idx=[];let vo=0;
+  for(let q=0;q<quads;q++){const a=q/quads*Math.PI,dx=Math.cos(a)*0.5,dz=Math.sin(a)*0.5;
+    pos.push(-dx,0,-dz, dx,0,dz, dx,1,dz, -dx,1,-dz);
+    uvs.push(0,0,1,0,1,1,0,1); aH.push(0,0,1,1);
+    idx.push(vo,vo+1,vo+2, vo,vo+2,vo+3); vo+=4;}
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  g.setAttribute('aH',new THREE.Float32BufferAttribute(aH,1));
+  g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+const GR=40, GN=46000, grassOffs=[]; let grass=null, grassCell=null, grassTime=null;
+function buildGrass(){
+  const r=mulberry(7);
+  for(let n=0;n<GN;n++){const rad=Math.sqrt(r())*GR,a=r()*6.28;
+    grassOffs.push([Math.cos(a)*rad,Math.sin(a)*rad, 0.75+r()*1.0, r()*6.28, 0.9+r()*0.7]);}
+  const mat=new THREE.MeshStandardMaterial({map:grassTex(),alphaTest:0.35,side:THREE.DoubleSide,roughness:1,color:0x7c9a4f});
+  mat.onBeforeCompile=(sh)=>{sh.uniforms.uTime={value:0};grassTime=sh.uniforms.uTime;
+    sh.vertexShader='attribute float aH;uniform float uTime;\n'+sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\n float wv=sin(uTime*1.5+(instanceMatrix[3].x+instanceMatrix[3].z)*0.35)*0.22*aH; transformed.x+=wv; transformed.z+=wv*0.5;');};
+  grass=new THREE.InstancedMesh(clumpGeo(),mat,GN);
+  grass.frustumCulled=false; grass.receiveShadow=true; grass.castShadow=false;
+  scene.add(grass); placeGrass(true);
+}
+function placeGrass(force){
+  const cx=Math.round(camera.position.x/3)*3, cz=Math.round(camera.position.z/3)*3;
+  if(!force && grassCell && grassCell[0]===cx && grassCell[1]===cz) return;
+  grassCell=[cx,cz];
+  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3();
+  for(let n=0;n<GN;n++){const o=grassOffs[n];const x=cx+o[0],z=cz+o[1],y=H(x,z);
+    q.setFromEuler(new THREE.Euler(0,o[3],0)); p.set(x,y,z);
+    if(y>3600) s.set(0,0,0); else s.set(o[4],o[2]*1.4,o[4]);
+    m.compose(p,q,s); grass.setMatrixAt(n,m);}
+  grass.instanceMatrix.needsUpdate=true;
+}
+buildGrass();
+
 // ---------- water (lakes) ----------
 const waterMeshes=[]; let waterNrm=null;
 function addWater(){
@@ -327,6 +377,7 @@ function frame(now){
   camera.position.copy(pos); camera.lookAt(pos.x+dir.x,pos.y+dir.y,pos.z+dir.z);
   SUN.target.position.copy(pos); SUN.position.copy(pos).add(new THREE.Vector3(-2200,2800,1800));
   sky.position.copy(camera.position);
+  if(grassTime)grassTime.value=now*0.001; placeGrass(false);
   // hud
   document.getElementById('elev').textContent=Math.round((pos.y-EYE)*FT).toLocaleString();
   // labels
@@ -340,9 +391,10 @@ function frame(now){
   renderer.render(scene,camera);
 }
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+try{renderer.compile(scene,camera);}catch(e){} // warm up shaders so the first frame isn't black
 document.getElementById('load').style.display='none';
 requestAnimationFrame(frame);
-window.__scene={scene,camera,renderer,treeCount}; // debug handle
+window.__scene={scene,camera,renderer,treeCount,placeGrass,setT:function(t){if(grassTime)grassTime.value=t;}}; // debug handle
 })();
 </script>
 </body>
