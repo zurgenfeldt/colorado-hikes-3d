@@ -176,46 +176,60 @@ scene.add(buildTerrain());
 
 // ---------- trees ----------
 function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-function mergeGeo(gs){let tot=0;const ng=gs.map(g=>g.toNonIndexed());ng.forEach(g=>tot+=g.attributes.position.count);
-  const pos=new Float32Array(tot*3),nor=new Float32Array(tot*3);let o=0;
-  ng.forEach(g=>{pos.set(g.attributes.position.array,o*3);nor.set(g.attributes.normal.array,o*3);o+=g.attributes.position.count;});
-  const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.BufferAttribute(pos,3));G.setAttribute('normal',new THREE.BufferAttribute(nor,3));return G;}
-function coniferGeo(){ // 3 stacked cones, total height ~1
-  const c1=new THREE.ConeGeometry(1.0,0.5,7);c1.translate(0,0.25,0);
-  const c2=new THREE.ConeGeometry(0.72,0.45,7);c2.translate(0,0.50,0);
-  const c3=new THREE.ConeGeometry(0.45,0.42,7);c3.translate(0,0.78,0);
-  return mergeGeo([c1,c2,c3]);
+function mergeGeoC(items){ // [{geo,color:[r,g,b]}] -> merged geo with per-part vertex colors, height-normalized base at 0
+  const ng=items.map(it=>({g:it.geo.toNonIndexed(),c:it.color}));
+  let tot=0; ng.forEach(o=>tot+=o.g.attributes.position.count);
+  const pos=new Float32Array(tot*3),nor=new Float32Array(tot*3),col=new Float32Array(tot*3);
+  let o=0; ng.forEach(it=>{const n=it.g.attributes.position.count;
+    pos.set(it.g.attributes.position.array,o*3); nor.set(it.g.attributes.normal.array,o*3);
+    for(let i=0;i<n;i++){col[(o+i)*3]=it.c[0];col[(o+i)*3+1]=it.c[1];col[(o+i)*3+2]=it.c[2];}
+    o+=n;});
+  const G=new THREE.BufferGeometry();
+  G.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  G.setAttribute('normal',new THREE.BufferAttribute(nor,3));
+  G.setAttribute('color',new THREE.BufferAttribute(col,3)); return G;
+}
+function coniferGeo(){ // fuller fir: trunk + 7 jittered tiers, total height ~1
+  const it=[]; const trunk=new THREE.CylinderGeometry(0.035,0.07,0.6,5); trunk.translate(0,0.30,0);
+  it.push({geo:trunk,color:[0.26,0.19,0.12]});
+  for(let i=0;i<7;i++){const f=i/6, r=0.46*(1-f*0.8)+0.05, h=0.30*(1-f*0.2), y=0.32+f*0.60;
+    const c=new THREE.ConeGeometry(r,h,7); c.rotateY(i*1.3); c.translate(Math.sin(i*2.1)*0.05,y,Math.cos(i*1.6)*0.05);
+    const g=0.5+0.5*Math.sin(i*1.7); it.push({geo:c,color:[0.06+g*0.10,0.17+g*0.16,0.08+g*0.07]});}
+  return mergeGeoC(it);
+}
+function broadGeo(){ // leafy broadleaf: trunk + clustered blobs
+  const it=[]; const trunk=new THREE.CylinderGeometry(0.05,0.11,0.6,6); trunk.translate(0,0.30,0);
+  it.push({geo:trunk,color:[0.30,0.22,0.14]});
+  for(let i=0;i<7;i++){const a=i/7*6.28, rr=0.14+0.14*((i*7)%3)/2, r=0.30+0.15*((i*5)%3)/2;
+    const b=new THREE.IcosahedronGeometry(r,0); b.translate(Math.cos(a)*rr,0.78+((i%3)-1)*0.13,Math.sin(a)*rr);
+    const g=0.5+0.5*Math.sin(i*2.3); it.push({geo:b,color:[0.10+g*0.10,0.24+g*0.16,0.10+g*0.08]});}
+  return mergeGeoC(it);
 }
 function addTrees(){
-  const rnd=mulberry(1337), CAND=46000;
-  const folM=new THREE.MeshStandardMaterial({roughness:1,flatShading:true});
-  const trkM=new THREE.MeshStandardMaterial({color:0x46341f,roughness:1});
-  const folG=coniferGeo();
-  const trkG=new THREE.CylinderGeometry(0.10,0.16,1,5);trkG.translate(0,0.5,0);
-  const list=[];
+  const rnd=mulberry(1337), CAND=60000;
+  const matC=new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,flatShading:true});
+  const matB=new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,flatShading:true});
+  const gC=coniferGeo(), gB=broadGeo();
+  const conif=[], broad=[];
   for(let n=0;n<CAND;n++){
     const x=-W/2+rnd()*W, z=-Dp/2+rnd()*Dp, y=H(x,z);
     if(y>3560) continue;
     const hx=H(x+3,z)-H(x-3,z), hz=H(x,z+3)-H(x,z-3), slope=Math.hypot(hx,hz)/6;
-    if(slope>0.72) continue;
-    const dens=clamp01(0.97-(y-3150)/540);
+    if(slope>0.78) continue;
+    const dens=clamp01(1.04-(y-3150)/560);
     if(rnd()>dens) continue;
-    list.push([x,y,z, 5+rnd()*12, 1.0+rnd()*1.4, rnd()*6.28, rnd()]);
+    const broadleaf=(y<3380 && rnd()<0.4);
+    (broadleaf?broad:conif).push([x,y,z, (broadleaf?6+rnd()*8:7+rnd()*13), 0.85+rnd()*0.4, rnd()*6.28, rnd()]);
   }
-  const fol=new THREE.InstancedMesh(folG,folM,list.length);
-  const trk=new THREE.InstancedMesh(trkG,trkM,list.length);
-  fol.castShadow=true; trk.castShadow=true; fol.receiveShadow=true;
-  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3(),col=new THREE.Color();
-  for(let n=0;n<list.length;n++){
-    const[x,y,z,h,w,ry,cv2]=list[n];
-    q.setFromEuler(new THREE.Euler(0,ry,0));
-    p.set(x,y,z); s.set(0.9,0.22*h,0.9); m.compose(p,q,s); trk.setMatrixAt(n,m);
-    p.set(x,y+0.18*h,z); s.set(w,0.86*h,w); m.compose(p,q,s); fol.setMatrixAt(n,m);
-    col.setRGB(0.10+0.10*cv2, 0.20+0.16*cv2, 0.11+0.07*cv2); fol.setColorAt(n,col);
+  function build(geo,mat,list,spread){
+    const im=new THREE.InstancedMesh(geo,mat,list.length); im.castShadow=true; im.receiveShadow=true;
+    const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3(),col=new THREE.Color();
+    for(let n=0;n<list.length;n++){const[x,y,z,h,w,ry,cv2]=list[n];
+      q.setFromEuler(new THREE.Euler(0,ry,0)); p.set(x,y,z); s.set(h*spread*w,h,h*spread*w); m.compose(p,q,s); im.setMatrixAt(n,m);
+      const v=0.82+0.34*cv2; col.setRGB(v,v,v); im.setColorAt(n,col);}
+    im.instanceColor.needsUpdate=true; scene.add(im); return list.length;
   }
-  fol.instanceColor.needsUpdate=true;
-  scene.add(fol); scene.add(trk);
-  return list.length;
+  return build(gC,matC,conif,0.24)+build(gB,matB,broad,0.42);
 }
 const treeCount=addTrees();
 function addRocks(){
@@ -261,11 +275,11 @@ function clumpGeo(){
   g.setAttribute('aH',new THREE.Float32BufferAttribute(aH,1));
   g.setIndex(idx); g.computeVertexNormals(); return g;
 }
-const GR=40, GN=46000, grassOffs=[]; let grass=null, grassCell=null, grassTime=null;
+const GR=34, GN=60000, grassOffs=[]; let grass=null, grassCell=null, grassTime=null;
 function buildGrass(){
   const r=mulberry(7);
   for(let n=0;n<GN;n++){const rad=Math.sqrt(r())*GR,a=r()*6.28;
-    grassOffs.push([Math.cos(a)*rad,Math.sin(a)*rad, 0.75+r()*1.0, r()*6.28, 0.9+r()*0.7]);}
+    grassOffs.push([Math.cos(a)*rad,Math.sin(a)*rad, 0.28+r()*0.26, r()*6.28, 0.34+r()*0.3]);}
   const mat=new THREE.MeshStandardMaterial({map:grassTex(),alphaTest:0.35,side:THREE.DoubleSide,roughness:1,color:0x7c9a4f});
   mat.onBeforeCompile=(sh)=>{sh.uniforms.uTime={value:0};grassTime=sh.uniforms.uTime;
     sh.vertexShader='attribute float aH;uniform float uTime;\n'+sh.vertexShader.replace('#include <begin_vertex>',
@@ -281,7 +295,7 @@ function placeGrass(force){
   const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3(),p=new THREE.Vector3();
   for(let n=0;n<GN;n++){const o=grassOffs[n];const x=cx+o[0],z=cz+o[1],y=H(x,z);
     q.setFromEuler(new THREE.Euler(0,o[3],0)); p.set(x,y,z);
-    if(y>3600) s.set(0,0,0); else s.set(o[4],o[2]*1.4,o[4]);
+    if(y>3600) s.set(0,0,0); else s.set(o[4],o[2],o[4]);
     m.compose(p,q,s); grass.setMatrixAt(n,m);}
   grass.instanceMatrix.needsUpdate=true;
 }
